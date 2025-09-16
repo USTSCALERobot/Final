@@ -10,6 +10,7 @@ elbow1 = Ax12(4)
 elbow2 = Ax12(5)
 wrist = Ax12(6)
 gripper = Ax12(7)
+gripper2 = Ax12(8)
 
 default_speed = 75
 max_speed = 1023
@@ -74,6 +75,31 @@ def set_shoulder(deg):
     shoulder1.set_position(1023 - pos)
     shoulder2.set_position(pos)
 
+def adjust_gripper_angle(current_angle, additional_angle):
+    adjusted_angle = current_angle + additional_angle
+    print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
+    return adjusted_angle
+
+def readjusted_gripper_angle(current_angle, additional_angle):
+    adjusted_angle = current_angle - additional_angle
+    print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
+    return adjusted_angle
+
+def go_to_pos(pickup_pos, theta0_4):
+    try:
+        joint_angles = kin.ik3(pickup_pos)
+        theta4 = kin.calculate_theta_4(joint_angles, theta0_4)
+        phx.set_wrist(theta4)
+        phx.set_wse(joint_angles)
+        phx.wait_for_completion()
+    except ValueError as e:
+        print(f"Error: Unable to reach position {pickup_pos}. Details: {e}")
+        return False
+    return True
+
+def move_to_position_with_z_adjustment(pickup_pos, theta0_4, z_adjustment=15):
+    intermediate_pos = pickup_pos.copy()
+
 
 # check to make sure order motors are correct
 def set_elbow(deg):
@@ -91,14 +117,18 @@ def set_wrist(deg):
 
 def set_gripper(pos):
     gripper.set_position(pos)
-
-
 def close_gripper():
     gripper.set_position(0)
-
-
 def open_gripper():
     gripper.set_position(512)
+    
+    
+def set_gripper2(pos):
+    gripper2.set_position(pos)
+def close_gripper2():
+    gripper2.set_position(100)
+def open_gripper2():
+    gripper2.set_position(300)
 
 
 def set_angle(self, input_deg):
@@ -116,16 +146,20 @@ def get_angle(self):
 
 
 def wait_for_completion():
+    while gripper2.is_moving():
+        pass
+    while gripper.is_moving():
+        pass
     while waist.is_moving():
         pass
     while shoulder1.is_moving():
         pass
-    while elbow1.is_moving():
-        pass
     while wrist.is_moving():
         pass
-    while gripper.is_moving():
+    while elbow1.is_moving():
         pass
+    
+    
 
 
 def set_wse(joint_angles):
@@ -150,6 +184,18 @@ def rest_position():
     set_wsew([waist_deg, shoulder_deg, elbow_deg, wrist_deg])
     open_gripper()
     wait_for_completion()
+    open_gripper2()
+
+def rest_position_closed():
+    """Rest Position of Phx."""
+    waist_deg = 0  # between -150 to 150
+    shoulder_deg = 75  # between 0 and 180
+    elbow_deg = -90  # between 0 and -180
+    wrist_deg = 30
+    set_wsew([waist_deg, shoulder_deg, elbow_deg, wrist_deg])
+    open_gripper()
+    wait_for_completion()
+    close_gripper2()
 
 
 def zero_position():

@@ -79,8 +79,7 @@ class Ax12:
     def set_position(self, dxl_goal_position):
         """Write goal position."""
         self.set_register2(ADDR_AX_GOAL_POSITION_L, dxl_goal_position)
-        print("Position of dxl ID: %d set to %d " %
-              (self.id, dxl_goal_position))
+        # print("Position of dxl ID: %d set to %d " % (self.id, dxl_goal_position))
 
     def set_moving_speed(self, dxl_goal_speed):
         """Set the moving speed to goal position [0-1023]."""

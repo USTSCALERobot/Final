@@ -8,8 +8,9 @@ import re
 
 # Paths
 SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
-#SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
+VOSK_FILE      = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/vosk_voice_detection.py"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
+SPEECH_FILE    = os.path.join(SAVE_FOLDER, "speech_input.txt")
 REQUEST_FILE   = os.path.join(SAVE_FOLDER, "chip_request_input.txt")
 FLAG_PATH      = os.path.join(SAVE_FOLDER, "multi_capture.flag")
 
@@ -49,34 +50,61 @@ def save_no_input():
     _write_request("Part", "None")
     chip_request.destroy()
 
+# def speech_to_text():
+#     print("You have unlimited time to say chips, say next after each full chip and stop to end")
+#     os.makedirs(SAVE_FOLDER, exist_ok=True)
+#     #subprocess.run("arecord -D plughw:2,0 -d 6 UIRequestRecord.wav", shell=True)
+#     #with sr.AudioFile('UIRequestRecord.wav') as source:
+#         #audio = r.record(source)
+#     result = subprocess.run(["python3", VOSK_FILE], capture_output=True, text=True)
+#     text = result.stdout.strip()#r.recognize_google(audio)
+#     print(f"You said: ", text)
+
+#     # words = text.replace(",", " ").replace(" and ", " ").split()
+#     # matched = []
+#     # printed = set()
+#     # for w in words:
+#     #     best, best_score = None, 0.0
+#     #     for p in KNOWN_PARTS:
+#     #         s = SequenceMatcher(None, w.upper(), p.upper()).ratio()
+#     #         if s > best_score:
+#     #             best, best_score = p, s
+#     #     if best and best_score >= 0.50 and best not in matched:
+#     #         matched.append(best)
+#     #         if best not in printed:
+#     #             print(f"Matched: '{best}' (score: {best_score:.2f})")
+#     #             printed.add(best)
+
+#     # final_text = ", ".join(matched)
+#     # print(f"\n Matched: {final_text}\n")
+#     chip_id.delete(0, tk.END)
+#     chip_id.insert(0, string=text)
+
 def speech_to_text():
-    print("You have 6 seconds to record chip characters…")
-    os.makedirs(SAVE_FOLDER, exist_ok=True)
-    subprocess.run("arecord -D plughw:2,0 -d 6 UIRequestRecord.wav", shell=True)
-    with sr.AudioFile('UIRequestRecord.wav') as source:
-        audio = r.record(source)
-    text = r.recognize_google(audio)
-    print(f"\n🗣️ You said: {text}\n")
+    print("🎙️ Running Vosk voice recognition...")
+    try:
+        # Run the Vosk script and wait for it to finish
+        subprocess.run(["python3", VOSK_FILE], check=True)
 
-    words = text.replace(",", " ").replace(" and ", " ").split()
-    matched = []
-    printed = set()
-    for w in words:
-        best, best_score = None, 0.0
-        for p in KNOWN_PARTS:
-            s = SequenceMatcher(None, w.upper(), p.upper()).ratio()
-            if s > best_score:
-                best, best_score = p, s
-        if best and best_score >= 0.50 and best not in matched:
-            matched.append(best)
-            if best not in printed:
-                print(f"Matched: '{best}' (score: {best_score:.2f})")
-                printed.add(best)
+        # Now read the recognized text from the shared file
+        with open(SPEECH_FILE, 'r') as f:
+            recognized = f.read().strip()
 
-    final_text = ", ".join(matched)
-    print(f"\n✅ Matched: {final_text}\n")
-    chip_id.delete(0, tk.END)
-    chip_id.insert(0, string=final_text)
+        if recognized:
+            chip_id.delete(0, tk.END)
+            chip_id.insert(0, recognized)
+            print(f"✅ Loaded recognized chips: {recognized}")
+        else:
+            print("⚠️ No recognized text found in speech file.")
+            
+    except FileNotFoundError:
+        print(f"Speech file not found at {SPEECH_FILE}")
+    except subprocess.CalledProcessError as e:
+        print(f"Vosk script exited with an error: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+    
 
 def load_previous_request():
     try:
@@ -117,7 +145,7 @@ if __name__ == "__main__":
     chip_id = tk.Entry()
     chip_id.pack(fill="x", padx=10)
 
-    tk.Button(chip_request, text="Speech to Text (6s)",   command=speech_to_text).pack(pady=3)
+    tk.Button(chip_request, text="Speech to Text (Vosk)",   command=speech_to_text).pack(pady=3)
     tk.Button(chip_request, text="Submit Part Request",   command=save_input).pack(pady=3)
     tk.Button(chip_request, text="Submit Circuit Request",command=save_circuit_input).pack(pady=3)
     tk.Button(chip_request, text="Submit No Request",     command=save_no_input).pack(pady=3)

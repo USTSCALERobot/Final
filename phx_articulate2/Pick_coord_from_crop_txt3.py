@@ -4,13 +4,19 @@ import phx
 import time
 import math
 import re
+import gpiod
 
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
 phx.rest_position()
 
+LED_PIN = 24
+chip = gpiod.Chip('gpiochip4')
+led_line = chip.get_line(LED_PIN)
+led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 
 def transform_coordinates(x1, y1):
+
     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
     x2 = x1 * (22 - 15) + 15
     y2 = y1 * (-10 - (10)) + (10)
@@ -213,6 +219,20 @@ def drop_off(x, y, z, desired_angle):
     phx.rest_position()
 
 
+
+
+def none_belt_run():
+    #while(1):
+    led_line.set_value(1)
+    print("ON")
+    time.sleep(4.25)
+    led_line.set_value(0)
+    print("OFF")
+    time.sleep(1)  # Sleep for one second
+    led_line.release()
+
+
+
 # --- Main Loop ---
 def main():
     filename = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
@@ -225,7 +245,10 @@ def main():
         print("Detection file not found.")
         return
 
-    for block in content.strip().split('-----------------------------------'):
+    blocks = content.strip().split('-----------------------------------')
+    detections = []
+
+    for block in blocks:
         mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
         ma = re.search(r"Angle of error: ([\d.]+)", block)
         rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
@@ -238,32 +261,58 @@ def main():
         part_circuit = rc.group(1).upper()
         part_name = mm.group(1).strip()
 
-        # === Pickup Phase ===
-        tx, ty = transform_coordinates(x_raw, y_raw)
         angle = float(ma.group(1))
+        detections.append((x_raw, y_raw, angle, part_circuit, part_name))
 
-        if abs(angle) < 1.0:
-            pickup_offset = 0
-        elif angle > 90:
-            pickup_offset = angle - 180
+    if not detections:
+        print("No detections found.")
+        return
+
+    # --- Selection Logic ---
+    # Case 1: if all parts are None → just pick first (only None parts exist)
+    all_none = all(d[4] == "None" for d in detections)
+
+    if all_none:
+        chosen = detections[0]  # just pick up
+    else:
+        # Case 2: if part_name == None → use last detection with None
+        none_candidates = [d for d in detections if d[4] == "None"]
+        if none_candidates:
+            chosen = none_candidates[-1]  # last None
         else:
-            pickup_offset = angle
+            # Case 3: otherwise, take the first with a valid part name
+            valid_candidates = [d for d in detections if d[4] != "None"]
+            chosen = valid_candidates[0]
 
-        print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
-        pick_up(tx, ty, pickup_offset)
-        phx.rest_position_closed()
+    # --- Execute chosen detection ---
+    x_raw, y_raw, angle, part_circuit, part_name = chosen
+    tx, ty = transform_coordinates(x_raw, y_raw)
 
-        # === Drop-off Phase ===
-        if part_name == "None":
-            dx, dy, dz, desired_angle = -10, -15, 12, 0
-        else:
-            dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+    if abs(angle) < 1.0:
+        pickup_offset = 0
+    elif angle > 90:
+        pickup_offset = angle - 180
+    else:
+        pickup_offset = angle
 
+    print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+    pick_up(tx, ty, pickup_offset)
+    phx.rest_position_closed()
+
+    # --- Drop-off ---
+    if part_name == "None":
+        dx, dy, dz, desired_angle = 20, 0, 21, -90
+        print(f"Dropping off to None Bin")
+        drop_off(dx, dy, dz, desired_angle)
+        none_belt_run()
+    else:
+        dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
         print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
         drop_off(dx, dy, dz, desired_angle)
 
-        print("All operations complete. Resting.")
-        phx.rest_position()
+    print("All operations complete. Resting.")
+    phx.rest_position()
+
 
 
 if __name__ == "__main__":

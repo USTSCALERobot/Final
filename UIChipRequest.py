@@ -13,6 +13,7 @@ KNOWN_PARTS = [
 ]
 
 DETECTION_FILE = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
+VOSK_FILE = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/vosk_voice_detection.py"
 
 def save_input():
     chip = chip_id.get()

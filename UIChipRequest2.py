@@ -8,6 +8,7 @@ import re
 
 # Paths
 SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
+#SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 REQUEST_FILE   = os.path.join(SAVE_FOLDER, "chip_request_input.txt")
 FLAG_PATH      = os.path.join(SAVE_FOLDER, "multi_capture.flag")

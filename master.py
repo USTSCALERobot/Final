@@ -7,7 +7,7 @@ import time
 # --- Configuration: Update these paths as needed ---
 CHIP_VISION_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/chipvisionhandler2.py"
 OCR_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/ocrhandler.py"
-ARM_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2/Pick_coord_from_crop_txt2.py"
+ARM_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2/Pick_coord_from_crop_txt3.py"
 MOTOR2_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/Motor_Drive_After_OCR.py"
 UI_HANDLER = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/UIChipRequest.py"
 

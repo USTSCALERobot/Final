@@ -228,10 +228,15 @@ def main():
     for block in content.strip().split('-----------------------------------'):
         mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
         ma = re.search(r"Angle of error: ([\d.]+)", block)
-        rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
+        rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block) #TODO: Fix bug that causes no part requests to be skipped and part names always come in as "None"
         mm = re.search(r"Match parts for mapping:\s*(.+)", block)
 
         if not (mp and ma and rc and mm):
+            print(f"MP: '{mp}'")
+            print(f"MA: '{ma}'")
+            print(f"RC: '{rc}'")
+            print(f"MM: '{mm}'")
+            print("Insufficient chip information; skipping pickup")
             continue
 
         x_raw, y_raw = map(float, mp.groups())

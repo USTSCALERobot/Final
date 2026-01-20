@@ -46,7 +46,7 @@ def gstreamer_pipeline(
 
 
 def show_camera():
-    window_title = "Arm POV"
+    window_title = "PCB Placement Verifier"
     print(gstreamer_pipeline()) # To flip the image, modify the flip_method parameter (0 and 2 are the most common)
     video_capture = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
     if video_capture.isOpened():
@@ -55,7 +55,7 @@ def show_camera():
             while True:
                 ret_val, frame = video_capture.read()
                 height, width, _ = frame.shape
-                cropped = frame[height//2 : height, 0 : width] # Keep non-corrupted portion of camera feed
+                cropped = frame[height//2 : height, 240 : 720] # Keep non-corrupted portion of camera feed
                 # Check to see if the user closed the window
                 # Under GTK+ (Jetson Default), WND_PROP_VISIBLE does not work correctly. Under Qt it does
                 # GTK - Substitute WND_PROP_AUTOSIZE to detect if window has been closed by user

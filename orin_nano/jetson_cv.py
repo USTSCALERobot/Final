@@ -1,8 +1,10 @@
-# Code based on simple_camera.py from JetsonHacks repo: https://github.com/JetsonHacksNano/CSI-Camera.git
-
-# Main idea here is that camera capture feed is provided using Argus API in the terminal:
-# https://docs.nvidia.com/jetson/archives/r35.6.1/DeveloperGuide/SD/Multimedia/GstreamerBasedCameraCapture.html
-# Sample terminal command (will open a window): gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! nvvidconv ! xvimagesink
+# Description: 
+# Create a gstreamer command to produce live feed from IMX219 camera module.
+# Approach: 
+# Based on simple_camera.py from JetsonHacks: https://github.com/JetsonHacksNano/CSI-Camera.git.
+# Notes:
+# - gstreamer provided from Argus API: https://docs.nvidia.com/jetson/archives/r35.6.1/DeveloperGuide/SD/Multimedia/GstreamerBasedCameraCapture.html
+# - sample live feed command: gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! nvvidconv ! xvimagesink
 
 import cv2
 
@@ -54,16 +56,14 @@ def show_camera():
             window_handle = cv2.namedWindow(window_title, cv2.WINDOW_AUTOSIZE)
             while True:
                 ret_val, frame = video_capture.read()
-                # Check to see if the user closed the window
                 # Under GTK+ (Jetson Default), WND_PROP_VISIBLE does not work correctly. Under Qt it does
                 # GTK - Substitute WND_PROP_AUTOSIZE to detect if window has been closed by user
-                if cv2.getWindowProperty(window_title, cv2.WND_PROP_AUTOSIZE) >= 0 and frame is not None:
+                if cv2.getWindowProperty(window_title, cv2.WND_PROP_AUTOSIZE) >= 0 and frame is not None: # Check to see if the user closed the window
                     cv2.imshow(window_title, frame)
                 else:
                     break 
                 keyCode = cv2.waitKey(10) & 0xFF
-                # Stop the program on the ESC key or 'q'
-                if keyCode == 27 or keyCode == ord('q'):
+                if keyCode == 27 or keyCode == ord('q'): # Stop the program on the ESC key or 'q'
                     break
         finally:
             video_capture.release()

@@ -17,6 +17,7 @@ import time
 import os
 import argparse
 import tkinter as tk
+from jetson_cv import gstreamer_pipeline
 
 class _CounterApp:
     def __init__(self, root, ic_name, delay, out_dir, num_images):
@@ -63,37 +64,12 @@ class _CounterApp:
         if self.__counter_value == self.__counter_max:
             self.__counter_value = 0  # restart counter
             self.__num_positions += 1
-    
-    def gstreamer_pipeline(
-        self,
-        sensor_id=0,
-        capture_width=1920,
-        capture_height=1080,
-        framerate=60,
-        flip_method=0,
-    ):
-        return (
-        "nvarguscamerasrc sensor-id=%d ! "
-        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, "
-        "framerate=(fraction)%d/1, format=NV12 ! "
-        "nvvidconv flip-method=%d ! "
-        "video/x-raw, format=(string)BGRx ! "
-        "videoconvert ! "
-        "video/x-raw, format=(string)BGR ! appsink"
-        % (
-            sensor_id,
-            capture_width,
-            capture_height,
-            framerate,
-            flip_method,
-        )
-    )
 
     def capture_image(self):
         filename = self.generate_filename(self.__ic_name, self.__num_positions, self.__counter_value)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         output_path = os.path.join(script_dir, self.__out_dir, filename)
-        cap = cv2.VideoCapture(self.gstreamer_pipeline(), cv2.CAP_GSTREAMER)
+        cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
         if not cap.isOpened():
             print("Error: Unable to open camera")
             return

@@ -18,8 +18,8 @@ def gstreamer_pipeline(
     capture_height=1080,
     display_width=1280,
     display_height=720,
-    framerate=60,
-    flip_method=0,
+    framerate=30,
+    flip_method=2,
 ):
     return (
         "nvarguscamerasrc sensor-id=%d ! "
@@ -54,13 +54,11 @@ def show_camera():
             window_handle = cv2.namedWindow(window_title, cv2.WINDOW_AUTOSIZE)
             while True:
                 ret_val, frame = video_capture.read()
-                height, width, _ = frame.shape
-                cropped = frame[height//2 : height, 240 : 720] # Keep non-corrupted portion of camera feed
                 # Check to see if the user closed the window
                 # Under GTK+ (Jetson Default), WND_PROP_VISIBLE does not work correctly. Under Qt it does
                 # GTK - Substitute WND_PROP_AUTOSIZE to detect if window has been closed by user
-                if cv2.getWindowProperty(window_title, cv2.WND_PROP_AUTOSIZE) >= 0:
-                    cv2.imshow(window_title, cropped) # Centering requires 30 degrees offset right relative to camera
+                if cv2.getWindowProperty(window_title, cv2.WND_PROP_AUTOSIZE) >= 0 and frame is not None:
+                    cv2.imshow(window_title, frame)
                 else:
                     break 
                 keyCode = cv2.waitKey(10) & 0xFF

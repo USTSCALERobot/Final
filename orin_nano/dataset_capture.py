@@ -28,7 +28,7 @@ class _CounterApp:
         self.__ic_name = ic_name
         self.__countdown_value = delay
         self.__countdown_start = delay
-        self.__counter_value = 0
+        self.__counter_value = 0 # TODO: change counter value to track orientation for IC angles
         self.__counter_max = num_images
         self.__out_dir = out_dir
         self.__num_photos = 0;

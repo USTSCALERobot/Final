@@ -1,5 +1,7 @@
 # Jetson Orin Nano Developer Kit Documentation
 
+**If something is not on this doc, then it hasn't been done yet in this project.**
+
 ## Packaging
 
 The [non-official board](https://category.yahboom.net/products/jetson-orin-nano?variant=52589661618492) used in this project comes from Yahboom Robotics, so it's preflashed already and no set up is required. Simply power it up to use for the first time.
@@ -23,7 +25,12 @@ This section documents how to control the Jetson Orin Nano Super from another ma
 - **Initial SSH setup**
   - Ensure the Jetson is powered on, connected to the same network (Ethernet or Wi‑Fi), and reachable (for example `ping <jetson-ip>`).
   - SSH into the Jetson from your machine:
-    - `ssh jetson@<jetson-ip>` (replace `<jetson-ip>` as appropriate).
+    - `ssh <jetson-username>@<jetson-ip>` (replace `<jetson-username>` and `<jetson-ip>` as appropriate).
+    - `whoami` to find username and `ip addr show` to find IP address (can check Wi-Fi settings too)
+  - SSH sessions can be closed in 3 ways:
+    - `exit`
+    - `Ctrl + D`
+    - `press Enter, then type ~.`
   - If SSH is not available, install and enable the SSH server on the Jetson:
     - `sudo apt update && sudo apt install openssh-server`
     - `sudo systemctl enable ssh && sudo systemctl start ssh`
@@ -33,7 +40,7 @@ This section documents how to control the Jetson Orin Nano Super from another ma
     - `export DISPLAY=:0`
     - `export XAUTHORITY=/home/jetson/.Xauthority` (adjust path/username if different).
   - Make sure the same user is logged into the Jetson’s desktop on the attached monitor.
-  - Restart the Argus camera daemon once to clear stale state:
+  - Restart the Argus camera daemon once to clear stale state (The Argus camera stack can get stuck after crashes or improper shutdowns. Restarting nvargus-daemon resolves most camera initialization issues):
     - `sudo systemctl restart nvargus-daemon`
   - Run any script from the project directory:
     - `cd ~/SCALE_Robot/Final/orin_nano`

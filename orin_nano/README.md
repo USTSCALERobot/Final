@@ -16,6 +16,42 @@ The [IMX 219](https://www.uctronics.com/arducam-8-mp-sony-visible-light-ir-fixed
 
 The setup process is the same as the steps outlined in the IMX477 section, but this time you have to set up the pins for this camera module instead.
 
+## SSH
+
+This section documents how to control the Jetson Orin Nano Super from another machine (e.g. a Mac) over SSH, while still displaying the camera GUI on the Jetson’s own monitor. **SSH client must be on the 'eduroam' network to connect.**
+
+- **Initial SSH setup**
+  - Ensure the Jetson is powered on, connected to the same network (Ethernet or Wi‑Fi), and reachable (for example `ping <jetson-ip>`).
+  - SSH into the Jetson from your machine:
+    - `ssh jetson@<jetson-ip>` (replace `<jetson-ip>` as appropriate).
+  - If SSH is not available, install and enable the SSH server on the Jetson:
+    - `sudo apt update && sudo apt install openssh-server`
+    - `sudo systemctl enable ssh && sudo systemctl start ssh`
+
+- **Running GUI apps (camera or app) from SSH while displaying on the Jetson monitor**
+  - From the SSH session, explicitly target the Jetson’s local X display:
+    - `export DISPLAY=:0`
+    - `export XAUTHORITY=/home/jetson/.Xauthority` (adjust path/username if different).
+  - Make sure the same user is logged into the Jetson’s desktop on the attached monitor.
+  - Restart the Argus camera daemon once to clear stale state:
+    - `sudo systemctl restart nvargus-daemon`
+  - Run any script from the project directory:
+    - `cd ~/SCALE_Robot/Final/orin_nano`
+    - `python <filename>`
+  - Result: CLI activity is visible in the SSH terminal on your machine, while the OpenCV window and camera feed appear on the Jetson’s physical display.
+
+- **What went wrong**
+  - **Using X11 forwarding (`ssh -X` / `ssh -Y`) with `nvarguscamerasrc`**:
+    - This set `DISPLAY` to something like `localhost:10.0` (your Mac’s X server).
+    - The Jetson Argus stack then failed to create an EGL stream for the camera, producing errors such as:
+      - `Error BadParameter ... Failed to create FrameConsumer`
+      - `gstnvarguscamerasrc.cpp, waitRunning: Invalid thread state 3`
+    - Fix: do **not** use X forwarding with the Argus camera pipeline; instead, SSH without `-X/-Y` and point `DISPLAY` to `:0`.
+  - **Running OpenCV GUI code over SSH without a usable display**:
+    - When no display was available (or GTK was pointed at the wrong display), `cv2.namedWindow` failed with:
+      - `cv2.error: Can't initialize GTK backend in function 'cvInitSystem'`
+    - Fix: either run the script with a valid `DISPLAY` pointing to the Jetson’s own X server (`:0`), or add a headless mode that skips `cv2.namedWindow` / `cv2.imshow` when running without GUI (not implemented).
+
 ## Known Issues
 
 This section is to document issues the team ran across while working with the Jetson and their solutions, if any.

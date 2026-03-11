@@ -20,12 +20,13 @@ import tkinter as tk
 from jetson_cv import gstreamer_pipeline
 
 class _CounterApp:
-    def __init__(self, root, ic_name, delay, out_dir, num_images):
+    def __init__(self, root, ic_name, ok, delay, out_dir, num_images):
         self.__root = root
         self.__root.title("Countdown + Counter")
         self.__root.bind("q", lambda event: self.close_app()) # * Quit on 'q'
 
         self.__ic_name = ic_name
+        self.__ok = ok;
         self.__countdown_value = delay
         self.__countdown_start = delay
         self.__counter_value = 0
@@ -85,7 +86,7 @@ class _CounterApp:
         self.__counter_label.config(text=f"Counter: {self.__counter_value}")
 
     def capture_image(self):
-        filename = self.generate_filename(self.__ic_name, self.__angles[self.__curr_angle], self.__counter_value)
+        filename = self.generate_filename(self.__ic_name, self.__ok, self.__angles[self.__curr_angle], self.__counter_value)
         script_dir = os.path.dirname(os.path.relpath(__file__))
         output_path = os.path.join(script_dir, self.__out_dir, filename)
         cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
@@ -102,17 +103,18 @@ class _CounterApp:
         cap.release()
         self.__num_photos += 1
 
-    def generate_filename(self, ic_name, angle, counter):
+    def generate_filename(self, ic_name, ok, angle, counter):
         timestamp = time.strftime("%Y-%m-%d_%H:%M.%S")
-        return f"{ic_name}_{angle}deg_#{counter+1:02d}_{timestamp}.jpg"
+        return f"{ic_name}_{ok}_{angle}deg_#{counter+1:02d}_{timestamp}.jpg"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(...)
     parser.add_argument("--ic", required=True, help="Name of the IC being photographed")
+    parser.add_argument("--ok", required=True, help="Validity of images in this dataset(ok or not ok)")
     parser.add_argument("--delay", type=int, default=5, help="Seconds between image captures")
     parser.add_argument("--out", type=str, default="pcb_ic_dataset", help="Image output subdirectory")
     parser.add_argument("--images", type=int, default=50, help="Number of photos to take between repositions")
     args = parser.parse_args()
     root = tk.Tk()
-    app = _CounterApp(root, args.ic, args.delay, args.out, args.images)
+    app = _CounterApp(root, args.ic, args.ok, args.delay, args.out, args.images)
     root.mainloop()

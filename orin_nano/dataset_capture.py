@@ -23,7 +23,7 @@ class _CounterApp:
     def __init__(self, root, ic_name, delay, out_dir, num_images):
         self.__root = root
         self.__root.title("Countdown + Counter")
-        self.__root.bind("q", lambda event: self.close_app()) # Quit on 'q'
+        self.__root.bind("q", lambda event: self.close_app()) # * Quit on 'q'
 
         self.__ic_name = ic_name
         self.__countdown_value = delay
@@ -42,13 +42,16 @@ class _CounterApp:
         self.__counter_label = tk.Label(root, text=f"Counter: {self.__counter_value}", font=("Arial", 24))
         self.__counter_label.pack(pady=10)
 
-        self.update_countdown() # every measurement depends on successful countdowns
+        self.__degree_label = tk.Label(root, text=f"Degree: {self.__angles[self.__curr_angle]}", font=("Arial", 24))
+        self.__degree_label.pack(pady=10)
+
+        self.update_countdown() # * every measurement depends on successful countdowns
 
     def close_app(self):
         if self.__curr_angle == len(self.__angles) - 1:
-            print(f"Took {self.__num_photos} photos across {len(self.__angles)} different IC angle orientations.")
+            print(f"Took {self.__num_photos} photos across {len(self.__angles)} different IC angle orientation(s).")
         else:
-            print(f"Took {self.__num_photos} photos across {self.__curr_angle + 1} different IC angle orientations.")
+            print(f"Took {self.__num_photos} photos across {self.__curr_angle + 1} different IC angle orientation(s).")
         self.__root.destroy()
 
     def update_countdown(self):
@@ -59,36 +62,37 @@ class _CounterApp:
         self.__countdown_value -= 1
 
         if self.__countdown_value < 0:
-            self.__countdown_value = self.__countdown_start  # restart countdown
+            self.__countdown_value = self.__countdown_start  # * restart countdown
             self.capture_image()
             self.update_counter()
 
-        self.__root.after(1000, self.update_countdown)  # run again in 1 second
+        self.__root.after(1000, self.update_countdown)  # * run again in 1 second
 
     def update_counter(self):
         if self.__capture_complete:
             return
 
-        self.__counter_value += 1
-        self.__counter_label.config(text=f"Counter: {self.__counter_value}")
-
         if self.__counter_value == self.__counter_max and self.__curr_angle != len(self.__angles) - 1:
             self.__counter_value = 0  # restart counter
             self.__curr_angle += 1
+            self.__degree_label.config(text=f"Degree: {self.__angles[self.__curr_angle]}")
         elif self.__counter_value == self.__counter_max and self.__curr_angle == len(self.__angles) - 1:
             self.__capture_complete = True;
             print("Capture complete for all angles.")
             self.__countdown_label.config(text="Capture complete. Press 'q' to exit.")
+            return
+        self.__counter_value += 1 # * Keeps counter and degree fields in sync when placed down here
+        self.__counter_label.config(text=f"Counter: {self.__counter_value}")
 
     def capture_image(self):
         filename = self.generate_filename(self.__ic_name, self.__angles[self.__curr_angle], self.__counter_value)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dir = os.path.dirname(os.path.relpath(__file__))
         output_path = os.path.join(script_dir, self.__out_dir, filename)
         cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
         if not cap.isOpened():
             print("Error: Unable to open camera")
             return
-        time.sleep(0.5) # Allow camera auto‑exposure to settle
+        time.sleep(0.5) # * Allow camera auto‑exposure to settle
         ret, frame = cap.read()
         if ret and frame is not None:
             cv2.imwrite(output_path, frame)
@@ -100,7 +104,7 @@ class _CounterApp:
 
     def generate_filename(self, ic_name, angle, counter):
         timestamp = time.strftime("%Y-%m-%d_%H:%M.%S")
-        return f"{ic_name}_{angle}deg_{counter+1:02d}_{timestamp}.jpg"
+        return f"{ic_name}_{angle}deg_#{counter+1:02d}_{timestamp}.jpg"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(...)

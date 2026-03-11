@@ -28,11 +28,13 @@ class _CounterApp:
         self.__ic_name = ic_name
         self.__countdown_value = delay
         self.__countdown_start = delay
-        self.__counter_value = 0 # TODO: change counter value to track orientation for IC angles
+        self.__counter_value = 0
         self.__counter_max = num_images
         self.__out_dir = out_dir
-        self.__num_photos = 0;
-        self.__num_positions = 1; # 1 is a stop gap solution for when user only goes through 1 counter run
+        self.__num_photos = 0
+        self.__angles = [0, 45, 60, 90]
+        self.__curr_angle = 0
+        self.__capture_complete = False
 
         self.__countdown_label = tk.Label(root, text=f"Countdown: {self.__countdown_value}", font=("Arial", 24))
         self.__countdown_label.pack(pady=10)
@@ -43,10 +45,16 @@ class _CounterApp:
         self.update_countdown() # every measurement depends on successful countdowns
 
     def close_app(self):
-        print(f"Took {self.__num_photos} photos across {self.__num_positions} different IC positions.")
+        if self.__curr_angle == len(self.__angles) - 1:
+            print(f"Took {self.__num_photos} photos across {len(self.__angles)} different IC angle orientations.")
+        else:
+            print(f"Took {self.__num_photos} photos across {self.__curr_angle + 1} different IC angle orientations.")
         self.__root.destroy()
 
     def update_countdown(self):
+        if self.__capture_complete:
+            return
+
         self.__countdown_label.config(text=f"Countdown: {self.__countdown_value}")
         self.__countdown_value -= 1
 
@@ -58,15 +66,22 @@ class _CounterApp:
         self.__root.after(1000, self.update_countdown)  # run again in 1 second
 
     def update_counter(self):
+        if self.__capture_complete:
+            return
+
         self.__counter_value += 1
         self.__counter_label.config(text=f"Counter: {self.__counter_value}")
 
-        if self.__counter_value == self.__counter_max:
+        if self.__counter_value == self.__counter_max and self.__curr_angle != len(self.__angles) - 1:
             self.__counter_value = 0  # restart counter
-            self.__num_positions += 1
+            self.__curr_angle += 1
+        elif self.__counter_value == self.__counter_max and self.__curr_angle == len(self.__angles) - 1:
+            self.__capture_complete = True;
+            print("Capture complete for all angles.")
+            self.__countdown_label.config(text="Capture complete. Press 'q' to exit.")
 
     def capture_image(self):
-        filename = self.generate_filename(self.__ic_name, self.__num_positions, self.__counter_value)
+        filename = self.generate_filename(self.__ic_name, self.__angles[self.__curr_angle], self.__counter_value)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         output_path = os.path.join(script_dir, self.__out_dir, filename)
         cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
@@ -83,9 +98,9 @@ class _CounterApp:
         cap.release()
         self.__num_photos += 1
 
-    def generate_filename(self, ic_name, position, counter):
+    def generate_filename(self, ic_name, angle, counter):
         timestamp = time.strftime("%Y-%m-%d_%H:%M.%S")
-        return f"{ic_name}_{position:02d}_{counter+1:02d}_{timestamp}.jpg"
+        return f"{ic_name}_{angle}deg_{counter+1:02d}_{timestamp}.jpg"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(...)

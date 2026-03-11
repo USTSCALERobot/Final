@@ -64,8 +64,8 @@ class _CounterApp:
 
         if self.__countdown_value < 0:
             self.__countdown_value = self.__countdown_start  # * restart countdown
-            self.capture_image()
             self.update_counter()
+            self.capture_image()
 
         self.__root.after(1000, self.update_countdown)  # * run again in 1 second
 
@@ -105,7 +105,7 @@ class _CounterApp:
 
     def generate_filename(self, ic_name, ok, angle, counter):
         timestamp = time.strftime("%Y-%m-%d_%H:%M.%S")
-        return f"{ic_name}_{ok}_{angle}deg_#{counter+1:02d}_{timestamp}.jpg"
+        return f"{ic_name}_{ok}_{angle}deg_#{counter:02d}_{timestamp}.jpg"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(...)

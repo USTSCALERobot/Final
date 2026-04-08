@@ -6,7 +6,7 @@ import time
 
 # --- Configuration ---
 HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi5_examples/bin/activate"
+HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
 OCR_SCRIPT = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/beltocr2.py"
 SAVE_FOLDER = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
@@ -33,26 +33,43 @@ def activate_env():
     print("✅ Environment activated successfully.")
 
 # --- Read Detection File ---
+# def read_detection_file():
+#     if not os.path.exists(DETECTION_FILE):
+#         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
+#     with open(DETECTION_FILE, "r") as f:
+#         lines = f.readlines()
+#     if len(lines) < 2:
+#         sys.exit("❌ Detection file format error. Expected at least two lines.")
+#     cropped_line = lines[0].strip()
+#     if not cropped_line.startswith("Cropped Photo Location:"):
+#         sys.exit("❌ Unexpected format in detection file.")
+#     parts = cropped_line.split(",", 1)
+#     if len(parts) < 2:
+#         sys.exit("❌ Couldn't parse cropped image path.")
+#     return parts[1].strip()
+
 def read_detection_file():
     if not os.path.exists(DETECTION_FILE):
         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
+
     with open(DETECTION_FILE, "r") as f:
         lines = f.readlines()
-    if len(lines) < 2:
-        sys.exit("❌ Detection file format error. Expected at least two lines.")
-    cropped_line = lines[0].strip()
-    if not cropped_line.startswith("Cropped Photo Location:"):
-        sys.exit("❌ Unexpected format in detection file.")
-    parts = cropped_line.split(",", 1)
-    if len(parts) < 2:
-        sys.exit("❌ Couldn't parse cropped image path.")
-    return parts[1].strip()
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("Cropped Photo Location:"):
+            parts = line.split(",", 1)
+            if len(parts) < 2:
+                sys.exit("❌ Couldn't parse cropped image path.")
+            return parts[1].strip()
+
+    sys.exit("❌ No cropped image path found in detection file.")
 
 # --- Run OCR ---
 def run_ocr():
     image_path = read_detection_file()
     print(f"Running OCR on image: {image_path}")
-    cmd = ["python3", OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
+    cmd = ["/usr/bin/python3", OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
     print("▶", " ".join(cmd))
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -92,10 +109,7 @@ def delete_cropped_images():
 
 # --- Main Workflow ---
 def main():
-    activate_env()
-    time.sleep(1)
     run_ocr()
-    cleanup_detection_header()
     delete_cropped_images()
 
 if __name__ == "__main__":

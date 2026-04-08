@@ -6,7 +6,7 @@ import time
 
 # --- Configuration ---
 HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi5_examples/bin/activate"
+HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
 # Update the detection script path as needed; here we use detection_mod3_Cam.py
 #DETECTION_SCRIPT = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/beltchipvision.py"
 DETECTION_SCRIPT = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/chipvision.py"

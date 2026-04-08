@@ -13,30 +13,58 @@ import hailo
 from hailo_rpi_common import get_caps_from_pad, app_callback_class
 from detection_pipeline import GStreamerDetectionApp
 
-# --- Motor GPIO Setup ---
+# --- Motor GPIO Setup (gpiod 2.x API) ---
 import gpiod
 MOTOR_PIN = 24
-_chip = gpiod.Chip('gpiochip0')
-_motor_line = _chip.get_line(MOTOR_PIN)
-_motor_line.request(consumer="motor", type=gpiod.LINE_REQ_DIR_OUT)
+
+# Retry loop in case GPIO pin is still held from a previous crashed run
+_chip = gpiod.Chip('/dev/gpiochip0')
+_motor_request = None
+for _attempt in range(5):
+    try:
+        _motor_request = _chip.request_lines(
+            config={MOTOR_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
+            consumer="motor"
+        )
+        break
+    except OSError as e:
+        if e.errno == 16 and _attempt < 4:
+            import time as _time
+            print(f"⚠️ GPIO pin busy, retrying ({_attempt+1}/5)...")
+            _time.sleep(1)
+        else:
+            raise
+
+if _motor_request is None:
+    sys.exit("❌ Could not acquire GPIO pin after retries.")
 
 def start_motor():
     try:
-        _motor_line.set_value(1)
+        _motor_request.set_value(MOTOR_PIN, gpiod.line.Value.ACTIVE)
         print("✅ Motor started.")
     except Exception as e:
         print(f"⚠️ Failed to start motor: {e}")
 
 def stop_motor():
     try:
-        _motor_line.set_value(0)
+        _motor_request.set_value(MOTOR_PIN, gpiod.line.Value.INACTIVE)
         print("✅ Motor stopped.")
     except Exception as e:
         print(f"⚠️ Failed to stop motor: {e}")
 
+def release_gpio():
+    try:
+        _motor_request.release()
+    except Exception:
+        pass
+    try:
+        _chip.close()
+    except Exception:
+        pass
+
 # --- Configuration ---
 HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH  = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi5_examples/bin/activate"
+HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
 SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 
@@ -123,7 +151,7 @@ def _stop_and_quit_async(user_data: UserAppCallback):
     except Exception as e:
         print(f"⚠️ set_state(NULL) error: {e}")
     try:
-        if user_data.main_loop:
+        if user_data.main_loop and user_data.main_loop.is_running():
             user_data.main_loop.quit()
     except Exception as e:
         print(f"⚠️ main_loop.quit() error: {e}")
@@ -237,34 +265,106 @@ def app_callback(pad, info, user_data: UserAppCallback):
 
 # --- Main Execution ---
 def stop_pipeline_safe(pipeline, main_loop):
-    # Extra safety in case we didn't stop above for any reason
     try:
         pipeline.set_state(Gst.State.NULL)
     except Exception as e:
         print(f"⚠️ set_state(NULL) error: {e}")
     try:
-        if main_loop:
+        if main_loop and main_loop.is_running():
             main_loop.quit()
     except Exception as e:
         print(f"⚠️ main_loop.quit() error: {e}")
+
+# if __name__ == "__main__":
+#     activate_hailo_env()
+#     Gst.init(None)
+
+#     main_loop = GLib.MainLoop()
+#     dummy = Gst.Pipeline.new("dummy-pipeline")
+#     user_data = UserAppCallback(dummy, main_loop)
+#     app = GStreamerDetectionApp(app_callback, user_data)
+#     user_data.pipeline = app.pipeline
+
+#     # --- Bus watch: handle XV window-close and pipeline errors cleanly ---
+#     def _on_bus_message(bus, message, loop):
+#         t = message.type
+#         if t == Gst.MessageType.ERROR:
+#             err, debug = message.parse_error()
+#             err_str = str(err)
+#             debug_str = str(debug) if debug else ""
+#             if "Output window was closed" in err_str or "Output window was closed" in debug_str:
+#                 print("🪟 Display window closed — shutting down cleanly.")
+#             else:
+#                 print(f"⚠️ Pipeline error: {err_str}")
+#             GLib.idle_add(_stop_and_quit_async, user_data)
+#         elif t == Gst.MessageType.EOS:
+#             print("⏹️ Pipeline EOS — shutting down.")
+#             GLib.idle_add(_stop_and_quit_async, user_data)
+#         return True
+
+#     bus = app.pipeline.get_bus()
+#     bus.add_signal_watch()
+#     bus.connect("message", _on_bus_message, main_loop)
+
+#     try:
+#         start_motor()
+#         print(">>> Running chip detection pipeline...")
+#         app.run()
+#         # app.run() starts its own internal GLib loop; run our outer loop too
+#         # so _stop_and_quit_async can quit it when detection is done
+#         if main_loop.is_running() is False:
+#             main_loop.run()
+#     except KeyboardInterrupt:
+#         print("🛑 AI detection interrupted.")
+#     except Exception as e:
+#         print(f"Application terminated: {e}")
+#     finally:
+#         stop_motor()
+#         release_gpio()
+#         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
+#         print("🧹 Cleanup done.")
+
 
 if __name__ == "__main__":
     activate_hailo_env()
     Gst.init(None)
 
-    main_loop = GLib.MainLoop()
     dummy = Gst.Pipeline.new("dummy-pipeline")
-    user_data = UserAppCallback(dummy, main_loop)
+    user_data = UserAppCallback(dummy, None)
     app = GStreamerDetectionApp(app_callback, user_data)
     user_data.pipeline = app.pipeline
+    user_data.main_loop = app.loop
+
+    def _on_bus_message(bus, message, loop):
+        t = message.type
+        if t == Gst.MessageType.ERROR:
+            err, debug = message.parse_error()
+            err_str = str(err)
+            debug_str = str(debug) if debug else ""
+            if "Output window was closed" in err_str or "Output window was closed" in debug_str:
+                print("🪟 Display window closed — shutting down cleanly.")
+            else:
+                print(f"⚠️ Pipeline error: {err_str}")
+            GLib.idle_add(_stop_and_quit_async, user_data)
+        elif t == Gst.MessageType.EOS:
+            print("⏹️ Pipeline EOS — shutting down.")
+            GLib.idle_add(_stop_and_quit_async, user_data)
+        return True
+
+    bus = app.pipeline.get_bus()
+    bus.add_signal_watch()
+    bus.connect("message", _on_bus_message, app.loop)
 
     try:
         start_motor()
         print(">>> Running chip detection pipeline...")
         app.run()
-        main_loop.run()
+    except KeyboardInterrupt:
+        print("🛑 AI detection interrupted.")
     except Exception as e:
         print(f"Application terminated: {e}")
     finally:
         stop_motor()
+        release_gpio()
         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
+        print("🧹 Cleanup done.")

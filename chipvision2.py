@@ -38,7 +38,7 @@ def stop_motor():
 
 # --- Configuration ---
 HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi5_examples/bin/activate"
+HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
 SAVE_FOLDER = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
 

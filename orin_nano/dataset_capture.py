@@ -20,101 +20,95 @@ import tkinter as tk
 from jetson_cv import gstreamer_pipeline
 
 class _CounterApp:
-    def __init__(self, root, ic_name, ok, delay, out_dir, num_images):
+    def __init__(self, root, ic_name, out_dir, num_images, deg):
         self.__root = root
         self.__root.title("Countdown + Counter")
-        self.__root.bind("q", lambda event: self.close_app()) # * Quit on 'q'
+        self.__root.bind("q", lambda event: self.close_app())
 
         self.__ic_name = ic_name
-        self.__ok = ok;
-        self.__countdown_value = delay
-        self.__countdown_start = delay
+        self.__deg = deg  # NEW: degree from CLI
+
+        # Countdown logic
+        self.__default_delay = 1          # normal capture every 1 sec
+        self.__interval_delay = 10        # every N images, wait 10 sec
+        self.__images_interval = num_images
+        self.__countdown_value = self.__default_delay
+
         self.__counter_value = 0
-        self.__counter_max = num_images
         self.__out_dir = out_dir
         self.__num_photos = 0
-        self.__angles = [0, 45, 60, 90]
-        self.__curr_angle = 0
-        self.__capture_complete = False
 
+        # GUI labels
         self.__countdown_label = tk.Label(root, text=f"Countdown: {self.__countdown_value}", font=("Arial", 24))
         self.__countdown_label.pack(pady=10)
 
         self.__counter_label = tk.Label(root, text=f"Counter: {self.__counter_value}", font=("Arial", 24))
         self.__counter_label.pack(pady=10)
 
-        self.__degree_label = tk.Label(root, text=f"Degree: {self.__angles[self.__curr_angle]}", font=("Arial", 24))
+        self.__degree_label = tk.Label(root, text=f"Degree: {self.__deg}", font=("Arial", 24))
         self.__degree_label.pack(pady=10)
 
-        self.update_countdown() # * every measurement depends on successful countdowns
+        self.update_countdown()
 
     def close_app(self):
-        if self.__curr_angle == len(self.__angles) - 1:
-            print(f"Took {self.__num_photos} photos across {len(self.__angles)} different IC angle orientation(s).")
-        else:
-            print(f"Took {self.__num_photos} photos across {self.__curr_angle + 1} different IC angle orientation(s).")
+        print(f"Took {self.__num_photos} photos.")
         self.__root.destroy()
 
     def update_countdown(self):
-        if self.__capture_complete:
-            return
-
         self.__countdown_label.config(text=f"Countdown: {self.__countdown_value}")
         self.__countdown_value -= 1
 
         if self.__countdown_value < 0:
-            self.__countdown_value = self.__countdown_start  # * restart countdown
-            self.update_counter()
             self.capture_image()
+            self.update_counter()
 
-        self.__root.after(1000, self.update_countdown)  # * run again in 1 second
+            # Reset countdown depending on interval
+            if self.__counter_value % self.__images_interval == 0:
+                self.__countdown_value = self.__interval_delay
+            else:
+                self.__countdown_value = self.__default_delay
+
+        self.__root.after(1000, self.update_countdown)
 
     def update_counter(self):
-        if self.__capture_complete:
-            return
-
-        if self.__counter_value == self.__counter_max and self.__curr_angle != len(self.__angles) - 1:
-            self.__counter_value = 0  # restart counter
-            self.__curr_angle += 1
-            self.__degree_label.config(text=f"Degree: {self.__angles[self.__curr_angle]}")
-        elif self.__counter_value == self.__counter_max and self.__curr_angle == len(self.__angles) - 1:
-            self.__capture_complete = True;
-            print("Capture complete for all angles.")
-            self.__countdown_label.config(text="Capture complete. Press 'q' to exit.")
-            return
-        self.__counter_value += 1 # * Keeps counter and degree fields in sync when placed down here
+        self.__counter_value += 1
         self.__counter_label.config(text=f"Counter: {self.__counter_value}")
 
     def capture_image(self):
-        filename = self.generate_filename(self.__ic_name, self.__ok, self.__angles[self.__curr_angle], self.__counter_value)
+        filename = self.generate_filename(self.__ic_name, self.__deg, self.__counter_value)
         script_dir = os.path.dirname(os.path.relpath(__file__))
         output_path = os.path.join(script_dir, self.__out_dir, filename)
+
         cap = cv2.VideoCapture(gstreamer_pipeline(), cv2.CAP_GSTREAMER)
         if not cap.isOpened():
             print("Error: Unable to open camera")
             return
-        time.sleep(0.5) # * Allow camera auto‑exposure to settle
+
+        time.sleep(0.5)
         ret, frame = cap.read()
         if ret and frame is not None:
             cv2.imwrite(output_path, frame)
-            print(f"Success: Saved image to {output_path}")
+            print(f"Saved: {output_path}")
         else:
             print("Error: Failed to capture image")
+
         cap.release()
         self.__num_photos += 1
 
-    def generate_filename(self, ic_name, ok, angle, counter):
-        timestamp = time.strftime("%Y-%m-%d_%H:%M.%S")
-        return f"{ic_name}_{ok}_{angle}deg_#{counter:02d}_{timestamp}.jpg"
+    def generate_filename(self, ic_name, deg, counter):
+        timestamp = time.strftime("%Y-%m-%d_%H.%M.%S")
+        return f"{ic_name}_{deg}deg_#{counter:02d}_{timestamp}.jpg"
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(...)
+    parser = argparse.ArgumentParser(description="PCB IC dataset capture tool")
     parser.add_argument("--ic", required=True, help="Name of the IC being photographed")
-    parser.add_argument("--ok", required=True, help="Validity of images in this dataset(ok or not ok)")
-    parser.add_argument("--delay", type=int, default=5, help="Seconds between image captures")
-    parser.add_argument("--out", type=str, default="pcb_ic_dataset", help="Image output subdirectory")
-    parser.add_argument("--images", type=int, default=50, help="Number of photos to take between repositions")
+    parser.add_argument("--deg", type=int, required=True, help="Angle of IC orientation")
+    parser.add_argument("--out", type=str, default="pcb_ic_dataset", help="Output directory")
+    parser.add_argument("--images", type=int, default=50,
+                        help="Every N images, wait 10 seconds instead of 1")
     args = parser.parse_args()
+
     root = tk.Tk()
-    app = _CounterApp(root, args.ic, args.ok, args.delay, args.out, args.images)
+    app = _CounterApp(root, args.ic, args.out, args.images, args.deg)
     root.mainloop()

@@ -33,6 +33,7 @@ def run_ui_chip_request():
 
 def run_chip_vision_handler():
     print("\n=== Vision: detection + crops (Frame 1, optional Frame 2) ===")
+
     env = os.environ.copy()
     env["EXTRA_RUN_SEC"] = EXTRA_RUN_SEC
 
@@ -41,8 +42,16 @@ def run_chip_vision_handler():
     env["LD_LIBRARY_PATH"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes:" + env.get("LD_LIBRARY_PATH", "")
 
     try:
+        #Pass explicit argument to ensure the AI uses the custom model and custom lables
+        # if '--labels-json' is missing the YOLO post-processor fails to map custom classes. 
+        args = [
+            HAILO_PYTHON, CHIP_VISION_HANDLER,
+            "--hef-path", "/home/scalepi/hailo-rpi5-examples/resources/NewFinal.hef",
+            "--labels-json", "/home/scalepi/hailo-rpi5-examples/resources/Final.json"
+        ]
         result = subprocess.run(
-            [HAILO_PYTHON, CHIP_VISION_HANDLER],
+         #   [HAILO_PYTHON, CHIP_VISION_HANDLER],
+            args,
             env=env,
             timeout=300  # 5-minute hard ceiling; adjust if your belt run is longer
         )

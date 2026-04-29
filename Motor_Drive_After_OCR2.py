@@ -1,22 +1,22 @@
 import gpiod
 import time
 
-# # Set up the GPIO mode
-# GPIO.setmode(GPIO.BCM)
-# 
 LED_PIN = 24
-chip = gpiod.Chip('/dev/gpiochip0')
-led_line = chip.get_line(LED_PIN)
-led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 
+chip = gpiod.Chip('/dev/gpiochip0')
+request = chip.request_lines(
+    config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
+    consumer="motor_after_ocr"
+)
 def main():
     #while(1):
-    led_line.set_value(1)
+    request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
     time.sleep(4.25)
-    led_line.set_value(0)
+    request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")
     time.sleep(1)  # Sleep for one second
-    led_line.release()
+    request.release()
+    chip.close()
 if __name__ == "__main__":
     main()

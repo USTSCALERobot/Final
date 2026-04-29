@@ -78,7 +78,8 @@ def run_ocr_handler():
 
 def run_motor2_handler(seconds=None):
     print("\n=== Belt: move parts to arm station ===")
-    cmd = ["python3", MOTOR2_HANDLER]
+#    cmd = ["python3", MOTOR2_HANDLER]
+    cmd = [HAILO_PYTHON, MOTOR2_HANDLER]
     if seconds is not None:
         cmd += ["--seconds", str(seconds)]
     result = subprocess.run(cmd)

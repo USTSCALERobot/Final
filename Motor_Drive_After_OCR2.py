@@ -5,7 +5,7 @@ import time
 # GPIO.setmode(GPIO.BCM)
 # 
 LED_PIN = 24
-chip = gpiod.Chip('gpiochip4')
+chip = gpiod.Chip('/dev/gpiochip0')
 led_line = chip.get_line(LED_PIN)
 led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 

@@ -5,16 +5,22 @@ import time
 import math
 import re
 import gpiod
-
+import os
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
 phx.rest_position()
 
+# LED_PIN = 24
+# chip = gpiod.Chip('/dev/gpiochip0')
+# led_line = chip.get_line(LED_PIN)
+# led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 LED_PIN = 24
-chip = gpiod.Chip('/dev/gpiochip0')
-led_line = chip.get_line(LED_PIN)
-led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 
+chip = gpiod.Chip('/dev/gpiochip0')
+led_request = chip.request_lines(
+    config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
+    consumer="arm_belt_run"
+)
 def transform_coordinates(x1, y1):
 
     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
@@ -221,23 +227,42 @@ def drop_off(x, y, z, desired_angle):
 
 
 
+# def none_belt_run():
+#     #while(1):
+#     led_line.set_value(1)
+#     print("ON")
+#     time.sleep(4.25)
+#     led_line.set_value(0)
+#     print("OFF")
+#     time.sleep(1)  # Sleep for one second
+#     led_line.release()
 def none_belt_run():
-    #while(1):
-    led_line.set_value(1)
-    print("ON")
-    time.sleep(4.25)
-    led_line.set_value(0)
-    print("OFF")
-    time.sleep(1)  # Sleep for one second
-    led_line.release()
+    try:
+        led_request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
+        print("ON")
+        time.sleep(4.25)
 
+        led_request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
+        print("OFF")
+        time.sleep(1)
+
+    finally:
+        try:
+            led_request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
+        except Exception:
+            pass
 
 
 # --- Main Loop ---
 def main():
     filename = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
-    circuits = load_circuits(CIRCUITS_FILE)
-
+   # circuits = load_circuits(CIRCUITS_FILE)
+    circuits = {}
+    if os.path.exists(CIRCUITS_FILE):
+        circuits = load_circuits(CIRCUITS_FILE)
+    else:
+        print(f"⚠️ Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
+    
     try:
         with open(filename, 'r') as f:
             content = f.read()
@@ -249,18 +274,28 @@ def main():
     detections = []
 
     for block in blocks:
-        mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
-        ma = re.search(r"Angle of error: ([\d.]+)", block)
-        rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
+    #     mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
+    #    # ma = re.search(r"Angle of error: ([\d.]+)", block)
+    #     ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
+    #     rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
+    #     mm = re.search(r"Match parts for mapping:\s*(.+)", block)
+
+    #     if not (mp and ma and rc and mm):
+    #         continue
+        mp = re.search(r"Chip Middle Point:\s*\(([-\d.]+),\s*([-\d.]+)\)", block)
+        ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
+        rp = re.search(r"Requested Part\(s\):\s*(.+)", block)
         mm = re.search(r"Match parts for mapping:\s*(.+)", block)
 
-        if not (mp and ma and rc and mm):
+        if not (mp and ma and rp and mm):
             continue
-
         x_raw, y_raw = map(float, mp.groups())
-        part_circuit = rc.group(1).upper()
+        # part_circuit = rc.group(1).upper()
+        # part_name = mm.group(1).strip()
+        requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
 
+        part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))
         detections.append((x_raw, y_raw, angle, part_circuit, part_name))
 
@@ -300,9 +335,18 @@ def main():
     phx.rest_position_closed()
 
     # --- Drop-off ---
-    if part_name == "None":
+    # if part_name == "None":
+    #     dx, dy, dz, desired_angle = 20, 0, 21, -90
+    #     print(f"Dropping off to None Bin")
+    #     drop_off(dx, dy, dz, desired_angle)
+    #     none_belt_run()
+    # else:
+    #     dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+    #     print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
+    #     drop_off(dx, dy, dz, desired_angle)
+    if part_name == "None" or part_circuit is None:
         dx, dy, dz, desired_angle = 20, 0, 21, -90
-        print(f"Dropping off to None Bin")
+        print("Dropping off to None Bin")
         drop_off(dx, dy, dz, desired_angle)
         none_belt_run()
     else:
@@ -311,7 +355,7 @@ def main():
         drop_off(dx, dy, dz, desired_angle)
 
     print("All operations complete. Resting.")
-    phx.rest_position()
+ 
 
 
 

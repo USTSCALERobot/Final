@@ -24,8 +24,10 @@ led_request = chip.request_lines(
 def transform_coordinates(x1, y1):
 
     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
-    x2 = x1 * (22 - 15) + 15
+    x2 = x1 * (22 - 15) + 14.25
     y2 = y1 * (-10 - (10)) + (10)
+    # x2 = x1 * 7  + 15
+    # y2 = y1 * (-10 - (10)) + (10)
     return x2, y2
 
 
@@ -345,7 +347,7 @@ def main():
     #     print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
     #     drop_off(dx, dy, dz, desired_angle)
     if part_name == "None" or part_circuit is None:
-        dx, dy, dz, desired_angle = 20, 0, 21, -90
+        dx, dy, dz, desired_angle = 20, 0, 22, -90
         print("Dropping off to None Bin")
         drop_off(dx, dy, dz, desired_angle)
         none_belt_run()

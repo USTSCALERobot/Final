@@ -12,7 +12,7 @@ def main():
     #while(1):
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
-    time.sleep(4.25)
+    time.sleep(9.5)
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")
     time.sleep(1)  # Sleep for one second

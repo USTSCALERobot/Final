@@ -1,0 +1,14 @@
+FRAME=1
+Cropped Photo Location: /home/scalepi/Desktop/savephototest/chip.png,/home/scalepi/Desktop/savephototest/chip_cropped_1.png
+Coordinates of the Detection Box: (0.37352752685546875, 0.40407341718673706) -> (0.5899313688278198, 0.4972625970840454)
+
+Frame: 1
+1. Raw OCR Text: e CoSn7a105AN
+Angle of error: 0.00°
+Chip Middle Point: (0.481729, 0.450668)
+Closest known part: SN74185AN
+Match ratio: 0.64
+Requested Part(s): CIRCUIT1
+Match parts for mapping: None
+-----------------------------------
+

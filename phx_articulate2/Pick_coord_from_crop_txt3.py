@@ -25,7 +25,7 @@ def transform_coordinates(x1, y1):
 
     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
     x2 = x1 * (22 - 15) + 14.25
-    y2 = y1 * (-10 - (10)) + (10)
+    y2 = y1 * (-10 - (10)) + (10.5)
     # x2 = x1 * 7  + 15
     # y2 = y1 * (-10 - (10)) + (10)
     return x2, y2
@@ -129,7 +129,7 @@ def go_to_pos(pickup_pos, theta0_4):
 def move_to_position_with_z_adjustment(pickup_pos, theta0_4, z_adjustment=15):
     intermediate_pos = pickup_pos.copy()
     intermediate_pos[2] += z_adjustment
-    # print(f"Moving to intermediate position (Z first): {intermediate_pos}")
+    print(f"Moving to intermediate position (Z first): {intermediate_pos}")
     go_to_pos(intermediate_pos, theta0_4)
     print(f"Moving to final position: {pickup_pos}")
     go_to_pos(pickup_pos, theta0_4)
@@ -140,7 +140,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 21]
+    pickup_pos = [x, y, 21.5]       
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -219,7 +219,10 @@ def drop_off(x, y, z, desired_angle):
     phx.open_gripper2()
     print("Gripper opened at drop-off location.")
     time.sleep(2.5)
-
+    
+    # Move vertically to avoid nudging chip after dropoff
+    go_to_pos([x,y,17], theta0_4)
+    ##################################
     print("Moving to fixed position (10, 0, 25)...")
     go_to_pos([10, 0, 25], 0)
 

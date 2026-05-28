@@ -220,9 +220,8 @@ def drop_off(x, y, z, desired_angle):
     print("Gripper opened at drop-off location.")
     time.sleep(2.5)
     
-    # Move vertically to avoid nudging chip after dropoff
-    go_to_pos([x,y,17], theta0_4)
-    ##################################
+    # Move vertically UP to avoid nudging chip after dropoff (relative to z)
+    go_to_pos([x, y, z + 4.25], theta0_4)
     print("Moving to fixed position (10, 0, 25)...")
     go_to_pos([10, 0, 25], 0)
 

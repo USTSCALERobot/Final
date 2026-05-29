@@ -21,15 +21,22 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
+# def transform_coordinates(x1, y1):
+
+#     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
+#     x2 = x1 * (22 - 15) + 14.25
+#     y2 = y1 * (-10 - (10)) + (10.5)
+#     # x2 = x1 * 7  + 15
+#     # y2 = y1 * (-10 - (10)) + (10)
+#     return x2, y2
 def transform_coordinates(x1, y1):
-
-    """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
-    x2 = x1 * (22 - 15) + 14.25
-    y2 = y1 * (-10 - (10)) + (10.5)
-    # x2 = x1 * 7  + 15
-    # y2 = y1 * (-10 - (10)) + (10)
+    x_close = 15
+    x_far = 22
+    y_right = -10
+    y_left = 10
+    x2 = x1 * (x_far - x_close) + x_close 
+    y2 = y1 * (y_right - y_left) + y_left -0.5
     return x2, y2
-
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
@@ -80,18 +87,20 @@ def get_detections_from_file(filename):
 
 
 def calculate_angle(x, y):
-    if abs(y) > abs(x):
-        angle_rad = math.atan2(x, y)
-        angle_rad -= (math.pi) / 4
-        angle_deg = math.degrees(angle_rad) + 45
-        if angle_deg < 0:
-            angle_deg += 360
-    else:
-        angle_rad = math.atan2(y, x)
-        angle_rad -= math.pi
-        angle_deg = math.degrees(angle_rad)
-        if angle_deg < 0:
-            angle_deg += 360
+    # if abs(y) > abs(x):
+    #     angle_rad = math.atan2(x, y)
+    #     angle_rad -= (math.pi) / 4
+    #     angle_deg = math.degrees(angle_rad) + 45
+    theta_0 = math.degrees(math.atan2(y,x))
+    angle_deg = 180 - theta_0
+    if angle_deg < 0:
+        angle_deg += 360
+    # else:
+    #     angle_rad = math.atan2(y, x)
+    #     angle_rad -= math.pi
+    #     angle_deg = math.degrees(angle_rad)
+    #     if angle_deg < 0:
+    #         angle_deg += 360
     return angle_deg
 
 
@@ -349,7 +358,7 @@ def main():
     #     print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
     #     drop_off(dx, dy, dz, desired_angle)
     if part_name == "None" or part_circuit is None:
-        dx, dy, dz, desired_angle = 20, 0, 22, -90
+        dx, dy, dz, desired_angle = 18.5, 0, 22, -90
         print("Dropping off to None Bin")
         drop_off(dx, dy, dz, desired_angle)
         none_belt_run()

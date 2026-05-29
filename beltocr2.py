@@ -101,11 +101,14 @@ def load_circuit_parts(circuit_name):
     parts = []
     if m:
         block = m.group(1)
-        entries = re.findall(r'"([^"]+)"', block)
-        for entry in entries:
-            pm = re.search(r'\d+\.\s*(.+?)\s*\(', entry)
-            if pm:
-                parts.append(pm.group(1).strip().upper())
+        # entries = re.findall(r'"([^"]+)"', block)
+        # for entry in entries:
+        #     pm = re.search(r'\d+\.\s*(.+?)\s*\(', entry)
+        #     if pm:
+        #         parts.append(pm.group(1).strip().upper())
+        entries = re.findall(r'\d+\.\s*([^()]+)\(',block)
+        for part_name in entries:
+            parts.append(part_name.strip().upper())
     return parts
 
 def best_part_match(ocr_text, known_parts=KNOWN_PARTS):

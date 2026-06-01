@@ -202,26 +202,11 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- Frame 1: stop when y1 > 0.4 ----------
+    # ---------- Frame 1: stop when y1 > 0.45 ----------
     if not user_data.have_frame1:
-        if not getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
-            trigger_stop = any(y1 > 0.45 for (_, y1, _, _) in crop_list)
-            if trigger_stop:
-                print(" Triggering motor stop and waiting for belt to settle...")
-                stop_motor()
-                user_data.stopping_for_frame1 = True
-                def _ready_f1():
-                    user_data.ready_frame1 = True
-                    return False
-                # Wait 500ms for motor to completely brake and camera to stop motion blur
-                GLib.timeout_add(500, _ready_f1)
-            return Gst.PadProbeReturn.OK
-        
-        if getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
-            # Still waiting for motor to stop and settle
-            return Gst.PadProbeReturn.OK
-            
-        if getattr(user_data, 'ready_frame1', False):
+        trigger_stop = any(y1 > 0.4 for (_, y1, _, _) in crop_list)
+        if trigger_stop:
+            stop_motor()
             user_data.have_frame1 = True
             user_data.ready_frame1 = False
             user_data.stopping_for_frame1 = False

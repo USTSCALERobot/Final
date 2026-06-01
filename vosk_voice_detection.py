@@ -48,6 +48,8 @@ def callback(indata, frames, time_info, status):
     """Sounddevice callback – queues audio chunks."""
     q.put(bytes(indata))
 
+LISTEN_TIMEOUT = 6.0
+
 # Main Voice Capture Function
 def run_voice_capture():
     chip_buffer = []

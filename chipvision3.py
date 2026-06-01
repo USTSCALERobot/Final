@@ -202,9 +202,9 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- Frame 1: stop when y1 > 0.4 ----------
+    # ---------- Frame 1: stop when y1 > 0.45 ----------
     if not user_data.have_frame1:
-        trigger_stop = any(y1 > 0.4 for (_, y1, _, _) in crop_list)
+        trigger_stop = any(y1 > 0.45 for (_, y1, _, _) in crop_list)
         if trigger_stop:
             stop_motor()
             user_data.have_frame1 = True

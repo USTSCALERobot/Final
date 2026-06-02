@@ -202,10 +202,10 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- Frame 1: stop when y1 > 0.45 ----------
+    # ---------- Frame 1: stop when y1 > 0.40 ----------
     if not user_data.have_frame1:
         if not getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
-            trigger_stop = any(y1 > 0.45 for (_, y1, _, _) in crop_list)
+            trigger_stop = any(y1 > 0.40 for (_, y1, _, _) in crop_list)
             if trigger_stop:
                 print(" Triggering motor stop and waiting 500ms for belt to settle...")
                 stop_motor()

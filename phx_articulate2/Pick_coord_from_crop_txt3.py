@@ -36,7 +36,7 @@ def transform_coordinates(x1, y1):
     y_right = -10
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
-    y2 = y1 * (y_right - y_left) + y_left + 0.75
+    y2 = y1 * (y_right - y_left) + y_left 
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -150,7 +150,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 21.5]       
+    pickup_pos = [x, y, 20.5]       
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -359,7 +359,7 @@ def main():
     #     print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
     #     drop_off(dx, dy, dz, desired_angle)
     if part_name == "None" or part_circuit is None:
-        dx, dy, dz, desired_angle = 18.5, 0, 22, -90
+        dx, dy, dz, desired_angle = 18.5, 0, 21, -90
         print("Dropping off to None Bin")
         drop_off(dx, dy, dz, desired_angle)
         none_belt_run()

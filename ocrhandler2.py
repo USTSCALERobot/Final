@@ -110,7 +110,7 @@ def delete_cropped_images():
 # --- Main Workflow ---
 def main():
     run_ocr()
-    delete_cropped_images()
+    delete_cropped_images()	#disabled to run new accuracy testbench
 
 if __name__ == "__main__":
     main()

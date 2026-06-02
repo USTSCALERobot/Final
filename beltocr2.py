@@ -152,13 +152,17 @@ def mask_and_rotate(original_image, idx=1):
     
     # Draw center dot for debugging
     debug_img = color.copy()
+    # testing center dot RED
     cv2.circle(debug_img, (int(cx), int(cy)), 5, (0, 0, 255), -1)
+    #older center method dot BLUE
+    ai_cx, ai_cy = crop_w / 2 , crop_h / 2
+    cv2.circle(debug_img, (int(ai_cx),int(ai_cy)), 5, (255,0,0), -1)
+
     debug_path = os.path.join(SAVE_FOLDER, f"chip_center_debug_{idx}.png")
     cv2.imwrite(debug_path, debug_img)
 
     if wb < hb:
         angle += 90
-
     M = cv2.getRotationMatrix2D((cx,cy), angle, 1.0)
     rotated = cv2.warpAffine(masked, M, (masked.shape[1], masked.shape[0]),
                              flags=cv2.INTER_CUBIC, borderValue=(255,255,255))

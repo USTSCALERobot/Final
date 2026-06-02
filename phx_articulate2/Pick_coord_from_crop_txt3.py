@@ -21,6 +21,7 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
+# hi this is diferent
 # def transform_coordinates(x1, y1):
 
 #     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
@@ -35,7 +36,7 @@ def transform_coordinates(x1, y1):
     y_right = -10
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
-    y2 = y1 * (y_right - y_left) + y_left -0.5
+    y2 = y1 * (y_right - y_left) + y_left + 0.75
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"

@@ -48,6 +48,7 @@ def callback(indata, frames, time_info, status):
     """Sounddevice callback – queues audio chunks."""
     q.put(bytes(indata))
 
+# Timeout duration. Currently set to 6 Seconds
 LISTEN_TIMEOUT = 6.0
 
 # Main Voice Capture Function
@@ -58,6 +59,9 @@ def run_voice_capture():
     # last_heard_time = time.time()
     # PHRASE_TIMEOUT = 2.0  # seconds between tokens before committing a phrase
 
+    # --- NEW: Simple timeout logic ---
+    start_time = time.time()
+
     with sd.RawInputStream(samplerate=16000, blocksize=8000,
                            dtype='int16', channels=1, callback=callback):
         print("-" * 40)
@@ -65,7 +69,19 @@ def run_voice_capture():
         print("-" * 40)
 
         while True:
-            data = q.get()
+            # Timeout Logic - After LISTEN_TIMEOUT seconds of no input, the program will exit
+            # Check if we've exceeded the timeout without hearing anything
+            elapsed = time.time() - start_time
+            if elapsed >= LISTEN_TIMEOUT:
+                print("Timeout reached (6 seconds). Exiting capture.")
+                break
+
+            try:
+                remaining = LISTEN_TIMEOUT - elapsed
+                data = q.get(timeout=remaining)
+            except queue.Empty:
+                print("Timeout reached (6 seconds). Exiting capture.")
+                break
             if rec.AcceptWaveform(data):
                 result = json.loads(rec.Result())
                 text = result.get("text", "").lower().strip()
@@ -136,10 +152,10 @@ def run_voice_capture():
                 print("Buffer so far:", " ".join(chip_buffer))
                 print("-" * 40)
 
-    # # finalize leftover phrase
-    # if current_phrase:
-    #     combined = combine_letters_and_digits(" ".join(current_phrase))
-    #     chip_buffer.append(combined)
+    # finalize leftover phrase
+    if current_phrase:
+        combined = combine_letters_and_digits(" ".join(current_phrase))
+        chip_buffer.append(combined)
 
     final_string = " ".join(chip_buffer).replace(" ,", ",")
     print(f"Final detected chips: {final_string}")

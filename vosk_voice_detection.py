@@ -80,7 +80,7 @@ def run_voice_capture():
                 remaining = LISTEN_TIMEOUT - elapsed
                 data = q.get(timeout=remaining)
             except queue.Empty:
-                print("Timeout reached (6 seconds). Exiting capture.")
+                print("Timeout reached ( seconds). Exiting capture.")
                 break
             if rec.AcceptWaveform(data):
                 result = json.loads(rec.Result())
@@ -153,6 +153,7 @@ def run_voice_capture():
                 print("-" * 40)
 
     # finalize leftover phrase
+    # Ensures that the voice input is not cutoff my the timeout counter.
     if current_phrase:
         combined = combine_letters_and_digits(" ".join(current_phrase))
         chip_buffer.append(combined)

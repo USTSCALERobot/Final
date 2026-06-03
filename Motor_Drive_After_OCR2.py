@@ -12,7 +12,7 @@ def main():
     #while(1):
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
-    time.sleep(10)  #used to be 9.25 found this one to line up better with arm 
+    time.sleep(9.5)  #used to be 9.25 found this one to line up better with arm 
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")
     time.sleep(1)  # Sleep for one second

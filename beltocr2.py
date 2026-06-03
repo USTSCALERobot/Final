@@ -124,7 +124,7 @@ def run_ocr_once(reader, image_path):
     text = " ".join(res[1] for res in results)
     return text, len(text)
 
-def mask_and_rotate(original_image, idx=1):
+def mask_and_rotate(original_image):
     gray = cv2.imread(original_image, cv2.IMREAD_GRAYSCALE)
     color = cv2.imread(original_image, cv2.IMREAD_COLOR)
     if gray is None or color is None:
@@ -150,16 +150,6 @@ def mask_and_rotate(original_image, idx=1):
 
     (cx, cy), (wb, hb), angle = cv2.minAreaRect(blob)
     
-    # Draw center dot for debugging
-    debug_img = color.copy()
-    # testing center dot RED
-    cv2.circle(debug_img, (int(cx), int(cy)), 5, (0, 0, 255), -1)
-    #older center method dot BLUE
-    ai_cx, ai_cy = crop_w / 2 , crop_h / 2
-    cv2.circle(debug_img, (int(ai_cx),int(ai_cy)), 5, (255,0,0), -1)
-
-    debug_path = os.path.join(SAVE_FOLDER, f"chip_center_debug_{idx}.png")
-    cv2.imwrite(debug_path, debug_img)
 
     if wb < hb:
         angle += 90
@@ -170,7 +160,7 @@ def mask_and_rotate(original_image, idx=1):
 
     rotated_180 = cv2.rotate(rotated, cv2.ROTATE_180)
     cv2.imwrite(ROTATED_OUTPUT_180, rotated_180)
-    return (cx, cy), (wb, hb), angle, crop_w, crop_h
+    return angle
 
 def run_ocr_and_select(reader):
     text0, _ = run_ocr_once(reader, ROTATED_OUTPUT)
@@ -183,7 +173,7 @@ def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)
 
 # ===== Updated: append with Frame line (unchanged logic, now gets frame_no robustly) =====
-def update_detection_file(angle, crop_index, chip_middle, frame_no, dimensions=None):
+def update_detection_file(angle, crop_index, chip_middle, frame_no):
     # Read the user’s request (circuit or manual parts)
     circuit_name = None
     manual_parts = []
@@ -222,8 +212,6 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, dimensions=N
         f.write(f"{crop_index}. Raw OCR Text: {raw_text}\n")
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
-        if dimensions:
-            f.write(f"Chip Dimensions: {dimensions[0]:.2f} x {dimensions[1]:.2f}\n")
         f.write(f"Closest known part: {best_part or 'None'}\n")
         f.write(f"Match ratio: {score:.2f}\n")
         f.write(f"Requested Part(s): {source_desc}\n")
@@ -254,19 +242,12 @@ def main():
                 continue
             seen.append(mid)
 
-            (cx, cy), (wb, hb), angle, crop_w, crop_h = mask_and_rotate(crop_path, idx)
-            
-            # Translate local crop center to global normalized coordinates
-            ncx = cx / crop_w
-            ncy = cy / crop_h
-            true_global_x = x1 + ncx * (x2 - x1)
-            true_global_y = y1 + ncy * (y2 - y1)
-            true_mid = (true_global_x, true_global_y)
+            angle = mask_and_rotate(crop_path)
 
             best_img = run_ocr_and_select(reader)
             cv2.imwrite(FINAL_OCR_OUTPUT, cv2.imread(best_img))
 
-            update_detection_file(angle, idx, true_mid, frame_no, dimensions=(wb, hb))
+            update_detection_file(angle, idx, mid, frame_no)
 
 if __name__ == "__main__":
     main()

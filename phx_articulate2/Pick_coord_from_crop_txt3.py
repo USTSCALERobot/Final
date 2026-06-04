@@ -304,8 +304,6 @@ def main():
         if not (mp and ma and rp and mm):
             continue
         x_raw, y_raw = map(float, mp.groups())
-        # part_circuit = rc.group(1).upper()
-        # part_name = mm.group(1).strip()
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
 
@@ -318,55 +316,52 @@ def main():
         return
 
     # --- Selection Logic ---
-    # Case 1: if all parts are None → just pick first (only None parts exist)
-    all_none = all(d[4] == "None" for d in detections)
+    for i in range(len(detections)):    # This will loop through all the detections
 
-    if all_none:
-        chosen = detections[0]  # just pick up
-    else:
-        # Case 2: if part_name == None → use last detection with None
-        none_candidates = [d for d in detections if d[4] == "None"]
-        if none_candidates:
-            chosen = none_candidates[-1]  # last None
+        # Case 1: if all parts are None → just pick first (only None parts exist)
+        all_none = all(d[4] == "None" for d in detections)
+
+        if all_none:
+            chosen = detections[0]  # just pick up
         else:
-            # Case 3: otherwise, take the first with a valid part name
-            valid_candidates = [d for d in detections if d[4] != "None"]
-            chosen = valid_candidates[0]
+            # Case 2: if part_name == None → use last detection with None
+            none_candidates = [d for d in detections if d[4] == "None"]
+            if none_candidates:
+                chosen = none_candidates[-1]  # last None
+            else:
+                # Case 3: otherwise, take the first with a valid part name
+                valid_candidates = [d for d in detections if d[4] != "None"]
+                chosen = valid_candidates[0]
+        # After selecting a detection, remove it from list and process next on following iteration
+        detections.remove(chosen)       
+        
+        # --- Execute chosen detection ---
+        x_raw, y_raw, angle, part_circuit, part_name = chosen
+        tx, ty = transform_coordinates(x_raw, y_raw)
 
-    # --- Execute chosen detection ---
-    x_raw, y_raw, angle, part_circuit, part_name = chosen
-    tx, ty = transform_coordinates(x_raw, y_raw)
+        if abs(angle) < 1.0:
+            pickup_offset = 0
+        elif angle > 90:
+            pickup_offset = angle - 180
+        else:
+            pickup_offset = angle
 
-    if abs(angle) < 1.0:
-        pickup_offset = 0
-    elif angle > 90:
-        pickup_offset = angle - 180
-    else:
-        pickup_offset = angle
+        print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+        pick_up(tx, ty, pickup_offset)
+        phx.rest_position_closed()
 
-    print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
-    pick_up(tx, ty, pickup_offset)
-    phx.rest_position_closed()
-
-    # --- Drop-off ---
-    # if part_name == "None":
-    #     dx, dy, dz, desired_angle = 20, 0, 21, -90
-    #     print(f"Dropping off to None Bin")
-    #     drop_off(dx, dy, dz, desired_angle)
-    #     none_belt_run()
-    # else:
-    #     dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
-    #     print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
-    #     drop_off(dx, dy, dz, desired_angle)
-    if part_name == "None" or part_circuit is None:
-        dx, dy, dz, desired_angle = 18.5, 0, 21, -90
-        print("Dropping off to None Bin")
-        drop_off(dx, dy, dz, desired_angle)
-        none_belt_run()
-    else:
-        dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
-        print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
-        drop_off(dx, dy, dz, desired_angle)
+        # --- Drop-off ---
+        if part_name == "None" or part_circuit is None:
+            dx, dy, dz, desired_angle = 18.5, 0, 21, -90
+            print("Dropping off to None Bin")
+            drop_off(dx, dy, dz, desired_angle)
+            none_belt_run()
+        else:
+            dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+            print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
+            drop_off(dx, dy, dz, desired_angle)
+        
+        print("Remaining detections to process: ", len(detections))
 
     print("All operations complete. Resting.")
  

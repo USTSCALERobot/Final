@@ -12,6 +12,7 @@ import cv2
 import hailo
 from hailo_rpi_common import get_caps_from_pad, app_callback_class
 from detection_pipeline import GStreamerDetectionApp
+import time
 
 # --- Motor GPIO Setup (gpiod 2.x API) ---
 import gpiod
@@ -110,6 +111,9 @@ class UserAppCallback(app_callback_class):
         self.ready_frame2 = False   # set True after pause + nudge complete
         self.did_frame2   = False
         self.stop_detection = False # detach pad probe when done
+        self.waiting_for_frame2_trigger = False
+        self.motor_start_time = 0.0
+        self.time_offset = 0.0
 
 # --- Extract Raw Frame Utility ---
 def extract_raw_frame(buffer, width, height):
@@ -157,20 +161,16 @@ def _stop_and_quit_async(user_data: UserAppCallback):
         print(f"⚠️ main_loop.quit() error: {e}")
     return False  # run once
 
-# --- Schedule: 1s pause, then 1.5s nudge, then mark ready for Frame 2 ---
+# --- Schedule: 1s pause, then start motor and watch for Frame 2 trigger ---
 def _schedule_pause_then_nudge(user_data: UserAppCallback):
     def _start_nudge():
-        print(f"🔵 Large-parts: starting {NUDGE_SEC:.1f}s belt nudge…")
+        print(f"Dynamic trigger: starting motor and watching for next chip...")
+        user_data.motor_start_time = time.time()
         start_motor()
-        def _stop_and_ready():
-            stop_motor()
-            user_data.ready_frame2 = True
-            print("🟢 Ready for Frame 2 capture (no Y-threshold).")
-            return False
-        GLib.timeout_add(int(NUDGE_SEC * 1000), _stop_and_ready)
+        user_data.waiting_for_frame2_trigger = True
         return False
 
-    print(f"⏸️ Pausing {PAUSE_SEC:.1f}s before nudge…")
+    print(f"⏸️ Pausing {PAUSE_SEC:.1f}s before dynamic nudge…")
     GLib.timeout_add(int(PAUSE_SEC * 1000), _start_nudge)
     return False
 
@@ -253,28 +253,64 @@ def app_callback(pad, info, user_data: UserAppCallback):
         # Not triggered yet; keep streaming
         return Gst.PadProbeReturn.OK
 
-    # ---------- Frame 2: IGNORE Y, capture first buffer after pause+nudge ----------
-    if user_data.need_frame2 and user_data.ready_frame2 and not user_data.did_frame2:
-        user_data.did_frame2 = True
+    # ---------- Frame 2: Dynamic Trigger ----------
+    if getattr(user_data, 'waiting_for_frame2_trigger', False):
+        if not getattr(user_data, 'stopping_for_frame2', False) and not getattr(user_data, 'ready_frame2', False):
+            elapsed = time.time() - user_data.motor_start_time
+            # Ignore chips for the first 0.5s so Chip 1 can move past the trigger line
+            if elapsed > 0.5:
+                # Look for a chip crossing the sweet spot (0.38 < y1 < 0.45)
+                trigger_stop = any(0.38 < y1 < 0.45 for (_, y1, _, _) in crop_list)
+                if trigger_stop:
+                    user_data.time_offset = time.time() - user_data.motor_start_time
+                    print(f" Triggering motor stop for Frame 2! Time offset: {user_data.time_offset:.2f}s")
+                    stop_motor()
+                    user_data.stopping_for_frame2 = True
+                    def _ready_f2():
+                        user_data.ready_frame2 = True
+                        return False
+                    GLib.timeout_add(500, _ready_f2)
+                elif elapsed > 1.5:
+                    user_data.time_offset = elapsed
+                    print(f" Timeout! No second chip seen within 1.5s. Continuing with offset {user_data.time_offset:.2f}s")
+                    stop_motor()
+                    user_data.stopping_for_frame2 = True
+                    def _ready_f2_timeout():
+                        user_data.ready_frame2 = True
+                        return False
+                    GLib.timeout_add(500, _ready_f2_timeout)
+        
+        if getattr(user_data, 'stopping_for_frame2', False) and not getattr(user_data, 'ready_frame2', False):
+            return Gst.PadProbeReturn.OK
 
-        with open(DETECTION_FILE, "a") as f:
-            f.write("FRAME=2\n")
-            if not crop_list:
-                print("ℹ️ Frame 2: No detections found; saving full frame only.")
-                full_path = os.path.join(SAVE_FOLDER, "chip2.png")
-                cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                f.write("No detections found\n\n")
-            else:
-                for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
-                    print(f"Saving Crop {i} (Frame 2)")
-                    full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="2")
-                    f.write(f"Cropped Photo Location: {full},{crop}\n")
-                    f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
+        if getattr(user_data, 'ready_frame2', False) and not getattr(user_data, 'did_frame2', False):
+            user_data.did_frame2 = True
+            user_data.waiting_for_frame2_trigger = False
 
-        # Finalize after frame 2: close pipeline & quit
-        user_data.stop_detection = True
-        GLib.idle_add(_stop_and_quit_async, user_data)
-        return Gst.PadProbeReturn.REMOVE
+            with open(DETECTION_FILE, "a") as f:
+                f.write("FRAME=2\n")
+                f.write(f"Time_Offset: {user_data.time_offset:.2f}\n")
+                if not crop_list:
+                    print("ℹ️ Frame 2: No detections found; saving full frame only.")
+                    full_path = os.path.join(SAVE_FOLDER, "chip2.png")
+                    cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    f.write("No detections found\n\n")
+                else:
+                    for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
+                        # Ignore chips that have already passed the sweet spot (Chip 1)
+                        if y1 > 0.46:
+                            print(f"ℹ️ Ignoring downstream chip at y1={y1:.2f} (Already processed)")
+                            continue
+                            
+                        print(f"Saving Crop {i} (Frame 2)")
+                        full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="2")
+                        f.write(f"Cropped Photo Location: {full},{crop}\n")
+                        f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
+
+            # Finalize after frame 2: close pipeline & quit
+            user_data.stop_detection = True
+            GLib.idle_add(_stop_and_quit_async, user_data)
+            return Gst.PadProbeReturn.REMOVE
 
     # Otherwise keep streaming
     return Gst.PadProbeReturn.OK

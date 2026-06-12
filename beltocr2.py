@@ -32,6 +32,10 @@ COORDS_RE = re.compile(
     r'^\s*Coordinates of the Detection Box:\s*\(([-0-9.]+),\s*([-0-9.]+)\)\s*->\s*\(([-0-9.]+),\s*([-0-9.]+)\)\s*$',
     re.IGNORECASE
 )
+TIME_OFFSET_RE = re.compile(r'^\s*Time_Offset:\s*([0-9.]+)\s*$', re.IGNORECASE)
+
+# Global dict to store time offsets per frame
+frame_time_offsets = {}
 
 def _infer_frame_from_paths(full_path: str, crop_path: str) -> int:
     bn_full = os.path.basename(full_path or "")
@@ -77,6 +81,11 @@ def parse_detection_frames(detection_file: str) -> Dict[int, List[Tuple[str, str
                 # If no explicit frame header, infer from filenames
                 pending_frame = cur_frame if cur_frame is not None else _infer_frame_from_paths(full_path, crop_path)
                 frames.setdefault(pending_frame, [])
+                continue
+
+            m = TIME_OFFSET_RE.match(line)
+            if m and cur_frame is not None:
+                frame_time_offsets[cur_frame] = float(m.group(1))
                 continue
 
             m = COORDS_RE.match(line)
@@ -173,7 +182,7 @@ def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)
 
 # ===== Updated: append with Frame line (unchanged logic, now gets frame_no robustly) =====
-def update_detection_file(angle, crop_index, chip_middle, frame_no):
+def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=0.0):
     # Read the user’s request (circuit or manual parts)
     circuit_name = None
     manual_parts = []
@@ -209,6 +218,7 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no):
     # Append block (with Frame: N)
     with open(DETECTION_FILE, "a") as f:
         f.write(f"Frame: {frame_no}\n")
+        f.write(f"Time_Offset: {time_offset:.2f}\n")
         f.write(f"{crop_index}. Raw OCR Text: {raw_text}\n")
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
@@ -247,7 +257,8 @@ def main():
             best_img = run_ocr_and_select(reader)
             cv2.imwrite(FINAL_OCR_OUTPUT, cv2.imread(best_img))
 
-            update_detection_file(angle, idx, mid, frame_no)
+            t_offset = frame_time_offsets.get(frame_no, 0.0)
+            update_detection_file(angle, idx, mid, frame_no, t_offset)
 
 if __name__ == "__main__":
     main()

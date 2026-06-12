@@ -300,16 +300,18 @@ def main():
         ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
         rp = re.search(r"Requested Part\(s\):\s*(.+)", block)
         mm = re.search(r"Match parts for mapping:\s*(.+)", block)
+        mt = re.search(r"Time_Offset:\s*([0-9.]+)", block)
 
         if not (mp and ma and rp and mm):
             continue
         x_raw, y_raw = map(float, mp.groups())
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
+        time_offset = float(mt.group(1)) if mt else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))
-        detections.append((x_raw, y_raw, angle, part_circuit, part_name))
+        detections.append((x_raw, y_raw, angle, part_circuit, part_name, time_offset))
 
     if not detections:
         print("No detections found.")
@@ -336,8 +338,14 @@ def main():
         detections.remove(chosen)       
         
         # --- Execute chosen detection ---
-        x_raw, y_raw, angle, part_circuit, part_name = chosen
+        x_raw, y_raw, angle, part_circuit, part_name, time_offset = chosen
         tx, ty = transform_coordinates(x_raw, y_raw)
+
+        # Apply physical offset for trailing chips based on dynamic time delta
+        # Belt speed is ~18.5 cm / 8.25 s = 2.242 cm/s
+        # Since y-axis is parallel to the belt and upstream is +y, we add the offset
+        y_offset_cm = time_offset * 2.242
+        ty += y_offset_cm
 
         if abs(angle) < 1.0:
             pickup_offset = 0

@@ -36,7 +36,7 @@ def transform_coordinates(x1, y1):
     y_right = -10
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
-    y2 = y1 * (y_right - y_left) + y_left + 0.5     # 5mm ofset to the y axis
+    y2 = y1 * (y_right - y_left) + y_left +0.25      # 2.5mm ofset to the y axis
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -93,7 +93,7 @@ def calculate_angle(x, y):
     #     angle_rad -= (math.pi) / 4
     #     angle_deg = math.degrees(angle_rad) + 45
     theta_0 = math.degrees(math.atan2(y,x))
-    angle_deg = 180 - theta_0
+    angle_deg = 180 + theta_0
     if angle_deg < 0:
         angle_deg += 360
     # else:
@@ -360,7 +360,7 @@ def main():
 
         # --- Drop-off ---
         if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 22, -90    #raised to height of 22 for now
+            dx, dy, dz, desired_angle = 18.5, -20, 21, -90    #raised to height of 22 for now
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)
         #    none_belt_run()

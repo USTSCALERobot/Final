@@ -360,7 +360,7 @@ def main():
 
         # --- Drop-off ---
         if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 25, -90    #raised to height of 25 for now
+            dx, dy, dz, desired_angle = 18.5, -20, 22, -90    #raised to height of 22 for now
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)
         #    none_belt_run()

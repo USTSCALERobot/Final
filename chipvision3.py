@@ -233,6 +233,11 @@ def app_callback(pad, info, user_data: UserAppCallback):
                     f.write("No detections found\n\n")
                 else:
                     for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
+                        # Ignore trailing chips that haven't reached the sweet spot yet
+                        if y1 < 0.38:
+                            print(f"ℹ️ Ignoring upstream chip at y1={y1:.2f} (Will process in Frame 2)")
+                            continue
+
                         print(f"Saving Crop {i} (Frame 1)")
                         full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="")
                         f.write(f"Cropped Photo Location: {full},{crop}\n")

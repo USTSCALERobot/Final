@@ -240,6 +240,10 @@ def main():
         print("⚠️ No crops found in detection file; nothing to OCR.")
         return
 
+    # CLEAR THE FILE! We only want to save the final OCR results, 
+    # otherwise the raw vision text will corrupt the arm script's regex.
+    open(DETECTION_FILE, "w").close()
+
     reader = easyocr.Reader(['en'], gpu=False)
     seen: List[Tuple[float, float]] = []
 

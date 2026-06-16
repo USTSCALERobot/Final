@@ -70,7 +70,7 @@ SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 
 # Two-frame support (no pipeline restart)
-MULTI_CAPTURE_FLAG = os.path.join(SAVE_FOLDER, "multi_capture.flag")
+
 
 # EXACT timing per your clarification:
 PAUSE_SEC = 1.0     # pause after Frame 1
@@ -243,15 +243,10 @@ def app_callback(pad, info, user_data: UserAppCallback):
                         f.write(f"Cropped Photo Location: {full},{crop}\n")
                         f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
 
-            if os.path.exists(MULTI_CAPTURE_FLAG):
-                user_data.need_frame2  = True
-                user_data.ready_frame2 = False
-                GLib.idle_add(_schedule_pause_then_nudge, user_data)
-            else:
-                # Done after frame 1 (Large Parts OFF): close pipeline & quit
-                user_data.stop_detection = True
-                GLib.idle_add(_stop_and_quit_async, user_data)
-                return Gst.PadProbeReturn.REMOVE
+            # Always run multi-capture mode for Frame 2
+            user_data.need_frame2  = True
+            user_data.ready_frame2 = False
+            GLib.idle_add(_schedule_pause_then_nudge, user_data)
 
             return Gst.PadProbeReturn.OK
 

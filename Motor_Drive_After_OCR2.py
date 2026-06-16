@@ -34,7 +34,7 @@ def main():
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
     print(f"Running motor for {run_time:.2f}s (Base: {base_time}s - Max Offset: {max_offset:.2f}s)")
-    time.sleep(run_time)  #used to be 9.25 found this one to line up better with arm 
+    time.sleep(run_time)  # new time differential for multiple chips 
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")
     time.sleep(1)  # Sleep for one second

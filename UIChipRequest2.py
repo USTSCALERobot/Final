@@ -12,7 +12,6 @@ VOSK_FILE      = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/vosk_v
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 SPEECH_FILE    = os.path.join(SAVE_FOLDER, "speech_input.txt")
 REQUEST_FILE   = os.path.join(SAVE_FOLDER, "chip_request_input.txt")
-FLAG_PATH      = os.path.join(SAVE_FOLDER, "multi_capture.flag")
 
 # Known parts and circuits for STT matching
 KNOWN_PARTS = [
@@ -50,35 +49,6 @@ def save_no_input():
     _write_request("Part", "None")
     chip_request.destroy()
 
-# def speech_to_text():
-#     print("You have unlimited time to say chips, say next after each full chip and stop to end")
-#     os.makedirs(SAVE_FOLDER, exist_ok=True)
-#     #subprocess.run("arecord -D plughw:2,0 -d 6 UIRequestRecord.wav", shell=True)
-#     #with sr.AudioFile('UIRequestRecord.wav') as source:
-#         #audio = r.record(source)
-#     result = subprocess.run(["python3", VOSK_FILE], capture_output=True, text=True)
-#     text = result.stdout.strip()#r.recognize_google(audio)
-#     print(f"You said: ", text)
-
-#     # words = text.replace(",", " ").replace(" and ", " ").split()
-#     # matched = []
-#     # printed = set()
-#     # for w in words:
-#     #     best, best_score = None, 0.0
-#     #     for p in KNOWN_PARTS:
-#     #         s = SequenceMatcher(None, w.upper(), p.upper()).ratio()
-#     #         if s > best_score:
-#     #             best, best_score = p, s
-#     #     if best and best_score >= 0.50 and best not in matched:
-#     #         matched.append(best)
-#     #         if best not in printed:
-#     #             print(f"Matched: '{best}' (score: {best_score:.2f})")
-#     #             printed.add(best)
-
-#     # final_text = ", ".join(matched)
-#     # print(f"\n Matched: {final_text}\n")
-#     chip_id.delete(0, tk.END)
-#     chip_id.insert(0, string=text)
 
 def speech_to_text():
     print("🎙️ Running Vosk voice recognition...")
@@ -122,18 +92,6 @@ def load_previous_request():
     except Exception as e:
         print(f"Error loading previous request: {e}")
 
-def enable_large_selection():
-    os.makedirs(SAVE_FOLDER, exist_ok=True)
-    with open(FLAG_PATH, "w") as f:
-        f.write("1\n")
-    print("🔵 Large-part selection ENABLED")
-
-def disable_large_selection():
-    try:
-        os.remove(FLAG_PATH)
-        print("⚪ Large-part selection DISABLED")
-    except FileNotFoundError:
-        print("⚪ Large-part selection already disabled")
 
 # --- GUI ---
 if __name__ == "__main__":
@@ -151,8 +109,6 @@ if __name__ == "__main__":
     tk.Button(chip_request, text="Submit No Request",     command=save_no_input).pack(pady=3)
     tk.Button(chip_request, text="Load Previous Request", command=load_previous_request).pack(pady=3)
 
-    tk.Label(text="Large-Part (two-frame) Mode").pack(pady=(10,2))
-    tk.Button(chip_request, text="Large Part: ON",  command=enable_large_selection).pack(side="left", padx=10)
-    tk.Button(chip_request, text="Large Part: OFF", command=disable_large_selection).pack(side="left")
+
 
     chip_request.mainloop()

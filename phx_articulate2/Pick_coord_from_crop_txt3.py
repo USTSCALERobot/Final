@@ -35,9 +35,9 @@ def transform_coordinates(x1, y1):
     x_far = 22
     y_right = -10
     y_left = 10
-    # Subtract 6.64cm because the belt runs an extra 2.96s total (12.71s vs old 9.75s)
-    # moving the chips 6.64cm further into negative Y space
-    y2 = y1 * (y_right - y_left) + y_left + 0.25 - 6.64
+    x2 = x1 * (x_far - x_close) + x_close 
+    # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
+    y2 = y1 * (y_right - y_left) + y_left + 0.25 - 10.0
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -287,28 +287,24 @@ def main():
 
     blocks = content.strip().split('-----------------------------------')
     detections = []
-
+    
     for block in blocks:
-    #     mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
-    #    # ma = re.search(r"Angle of error: ([\d.]+)", block)
-    #     ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
-    #     rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
-    #     mm = re.search(r"Match parts for mapping:\s*(.+)", block)
-
-    #     if not (mp and ma and rc and mm):
-    #         continue
         mp = re.search(r"Chip Middle Point:\s*\(([-\d.]+),\s*([-\d.]+)\)", block)
         ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
         rp = re.search(r"Requested Part\(s\):\s*(.+)", block)
         mm = re.search(r"Match parts for mapping:\s*(.+)", block)
-        mt = re.search(r"Time_Offset:\s*([0-9.]+)", block)
 
         if not (mp and ma and rp and mm):
             continue
+
         x_raw, y_raw = map(float, mp.groups())
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
-        time_offset = float(mt.group(1)) if mt else 0.0
+        
+        # Use findall to get ALL Time_Offset matches in the block, and take the LAST one.
+        # This completely ignores any global maximum Time_Offset written at the top of the file.
+        mts = re.findall(r"^Time_Offset:\s*([0-9.]+)", block, flags=re.MULTILINE)
+        time_offset = float(mts[-1]) if mts else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))

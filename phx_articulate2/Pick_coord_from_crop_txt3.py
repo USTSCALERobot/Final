@@ -35,9 +35,9 @@ def transform_coordinates(x1, y1):
     x_far = 22
     y_right = -10
     y_left = 10
-    x2 = x1 * (x_far - x_close) + x_close 
-    # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left + 0.25 - 10.0
+    # Subtract 6.64cm because the belt runs an extra 2.96s total (12.71s vs old 9.75s)
+    # moving the chips 6.64cm further into negative Y space
+    y2 = y1 * (y_right - y_left) + y_left + 0.25 - 6.64
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"

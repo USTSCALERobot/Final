@@ -200,7 +200,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
             # Other chips: Wait 0.5s before checking, then look for sweet spot
             if elapsed > 0.5:
                 trigger_stop = any(0.38 < y1 < 0.45 for (_, y1, _, _) in crop_list)
-                if not trigger_stop and elapsed > 1.5:
+                if not trigger_stop and elapsed > 3.0:
                     is_timeout = True
         
         if trigger_stop:
@@ -216,7 +216,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
 
         elif is_timeout:
             user_data.time_offset += elapsed
-            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 1.5s.")
+            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 3.0s.")
             stop_motor()
             user_data.state = "STOPPING_FOR_TIMEOUT"
             def _ready_timeout():

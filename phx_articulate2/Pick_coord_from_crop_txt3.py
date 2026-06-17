@@ -37,7 +37,7 @@ def transform_coordinates(x1, y1):
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
     # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left + 0.25 - 10.0
+    y2 = y1 * (y_right - y_left) + y_left - 10.0
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -358,7 +358,7 @@ def main():
 
         # --- Drop-off ---
         if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 21, -90    #raised to height of 22 for now
+            dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 22 for now
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)
         #    none_belt_run()

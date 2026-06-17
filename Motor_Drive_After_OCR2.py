@@ -28,8 +28,8 @@ def get_max_time_offset():
 def main():
     max_offset = get_max_time_offset()
     # Increased from 8.25 to 12.71 to run the belt an additional ~4.46 seconds, 
-    # moving the chips further down the belt to clear the camera mount.
-    base_time = 12.71
+    # moving the chips ~10cm further down the belt to clear the camera mount.
+    base_time = 12.5
     run_time = max(0.0, base_time - max_offset)
     
     #while(1):

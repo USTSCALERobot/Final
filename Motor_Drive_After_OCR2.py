@@ -18,7 +18,7 @@ def get_max_time_offset():
     if os.path.exists(DETECTION_FILE):
         with open(DETECTION_FILE, 'r') as f:
             for line in f:
-                m = re.match(r'^\s*Time_Offset:\s*([0-9.]+)', line)
+                m = re.match(r'^\s*(?:Global_Max_)?Time_Offset:\s*([0-9.]+)', line)
                 if m:
                     offset = float(m.group(1))
                     if offset > max_offset:

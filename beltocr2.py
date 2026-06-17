@@ -245,9 +245,15 @@ def main():
     open(DETECTION_FILE, "w").close()
 
     reader = easyocr.Reader(['en'], gpu=False)
-    seen: List[Tuple[float, float]] = []
+
+    # Write the global maximum time offset at the top of the file so the motor script
+    # knows how long the belt ran during vision, even if the final frame timed out with no crops.
+    global_max_offset = max(frame_time_offsets.values()) if frame_time_offsets else 0.0
+    with open(DETECTION_FILE, "a") as f:
+        f.write(f"Global_Max_Time_Offset: {global_max_offset:.2f}\n\n")
 
     for frame_no in sorted(frames.keys()):     # process FRAME=1, then FRAME=2
+        seen: List[Tuple[float, float]] = []   # reset duplicate tracker for each frame
         crops = frames[frame_no]               # list of (full, crop, (x1,y1,x2,y2))
         for idx, (full_path, crop_path, (x1,y1,x2,y2)) in enumerate(crops, start=1):
             mid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)

@@ -318,6 +318,7 @@ def main():
         print("No detections found.")
         return
 
+
     # --- Selection Logic ---
     for i in range(len(detections)):    # This will loop through all the detections
 

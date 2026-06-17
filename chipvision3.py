@@ -205,7 +205,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
         
         if trigger_stop:
             if user_data.current_frame > 1:
-                user_data.time_offset = elapsed
+                user_data.time_offset += elapsed
             print(f"✅ [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
             stop_motor()
             user_data.state = "STOPPING_FOR_CAPTURE"
@@ -215,7 +215,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
             GLib.timeout_add(500, _ready_capture)
 
         elif is_timeout:
-            user_data.time_offset = elapsed
+            user_data.time_offset += elapsed
             print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 1.5s.")
             stop_motor()
             user_data.state = "STOPPING_FOR_TIMEOUT"

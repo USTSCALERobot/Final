@@ -37,7 +37,7 @@ def transform_coordinates(x1, y1):
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
     # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left - 10.0
+    y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -94,7 +94,7 @@ def calculate_angle(x, y):
     #     angle_rad -= (math.pi) / 4
     #     angle_deg = math.degrees(angle_rad) + 45
     theta_0 = math.degrees(math.atan2(y,x))
-    angle_deg = 180 + theta_0
+    angle_deg = 180 + (theta_0 * 1.20)   #1.2 scale to compensate for the servo 300 degree 360/300 1.2
     if angle_deg < 0:
         angle_deg += 360
     # else:
@@ -112,13 +112,13 @@ def angle_to_motor_steps(angle_deg):
 
 
 def adjust_gripper_angle(current_angle, additional_angle):
-    adjusted_angle = current_angle + additional_angle
+    adjusted_angle = current_angle + (additional_angle * 1.20)
     print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
     return adjusted_angle
 
 
 def readjusted_gripper_angle(current_angle, additional_angle):
-    adjusted_angle = current_angle - additional_angle
+    adjusted_angle = current_angle - (additional_angle * 1.20)
     print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
     return adjusted_angle
 

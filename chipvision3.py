@@ -4,6 +4,8 @@ sys.path.insert(0, "/home/scalepi/hailo-rpi5-examples/basic_pipelines")
 
 import os
 import subprocess
+import shutil
+from datetime import datetime
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
@@ -67,6 +69,8 @@ HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
 HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
 SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
+TRAINING_DATA_FOLDER = os.path.join(SAVE_FOLDER, "trainingData")
+_ARCHIVED_THIS_RUN = set()
 
 # Two-frame support (no pipeline restart)
 MULTI_CAPTURE_FLAG = os.path.join(SAVE_FOLDER, "multi_capture.flag")
@@ -122,10 +126,32 @@ def extract_raw_frame(buffer, width, height):
     finally:
         buffer.unmap(mi)
 
+def archive_existing_image(path):
+    if path in _ARCHIVED_THIS_RUN or not os.path.isfile(path):
+        return
+
+    os.makedirs(TRAINING_DATA_FOLDER, exist_ok=True)
+    stem, ext = os.path.splitext(os.path.basename(path))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    archive_path = os.path.join(TRAINING_DATA_FOLDER, f"{stem}_{timestamp}{ext}")
+
+    counter = 1
+    while os.path.exists(archive_path):
+        archive_path = os.path.join(
+            TRAINING_DATA_FOLDER,
+            f"{stem}_{timestamp}_{counter}{ext}"
+        )
+        counter += 1
+
+    shutil.move(path, archive_path)
+    _ARCHIVED_THIS_RUN.add(path)
+    print(f"Archived old image: {archive_path}")
+
 # --- Save Full Frame + Crop Indexed ---
 def save_full_and_crop(frame, bbox, idx, suffix=""):
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     full_path = os.path.join(SAVE_FOLDER, f"chip{suffix}.png")
+    archive_existing_image(full_path)
     cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
     x1, y1, x2, y2 = bbox
@@ -141,6 +167,7 @@ def save_full_and_crop(frame, bbox, idx, suffix=""):
     cropped_path = (os.path.join(SAVE_FOLDER, f"chip_cropped_{suffix}_{idx}.png")
                     if suffix else os.path.join(SAVE_FOLDER, f"chip_cropped_{idx}.png"))
     crop = cv2.cvtColor(frame[yi1:yi2, xi1:xi2], cv2.COLOR_RGB2BGR)
+    archive_existing_image(cropped_path)
     cv2.imwrite(cropped_path, crop)
     return full_path, cropped_path
 
@@ -229,6 +256,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
                 f.write("FRAME=1\n")
                 if not crop_list:
                     full_path = os.path.join(SAVE_FOLDER, "chip.png")
+                    archive_existing_image(full_path)
                     cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                     f.write("No detections found\n\n")
                 else:
@@ -262,6 +290,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
             if not crop_list:
                 print("ℹ️ Frame 2: No detections found; saving full frame only.")
                 full_path = os.path.join(SAVE_FOLDER, "chip2.png")
+                archive_existing_image(full_path)
                 cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 f.write("No detections found\n\n")
             else:

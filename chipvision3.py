@@ -345,7 +345,7 @@ def stop_pipeline_safe(pipeline, main_loop):
 #         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
 #         print("🧹 Cleanup done.")
 
-#           hi man !!!!!!!!!!!!!!!!!!!!!!
+
 if __name__ == "__main__":
     activate_hailo_env()
     Gst.init(None)

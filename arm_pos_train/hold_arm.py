@@ -10,10 +10,7 @@ This will open the gripper by +30 degrees at 10 deg/sec. Use a negative
 
 import time
 import argparse
-import sys
-
-import pick_cord_from_crop_txt3 as pc
-import phx
+from phx_articulate2 import phx
 
 
 def move_gripper_by(delta_deg, rate_deg_per_sec, step_ms=50, use_gripper2=False):

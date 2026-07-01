@@ -70,7 +70,9 @@ HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin
 SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 TRAINING_DATA_FOLDER = os.path.join(SAVE_FOLDER, "trainingData")
+CHIP_TRAINING_FOLDER = "/home/scalepi/Desktop/chip_training"
 _ARCHIVED_THIS_RUN = set()
+_TRAINING_SAVED_THIS_RUN = set()
 
 # Two-frame support (no pipeline restart)
 MULTI_CAPTURE_FLAG = os.path.join(SAVE_FOLDER, "multi_capture.flag")
@@ -147,12 +149,41 @@ def archive_existing_image(path):
     _ARCHIVED_THIS_RUN.add(path)
     print(f"Archived old image: {archive_path}")
 
+# Method to save the chip image. Images are being used for fault detection training
+def save_chip_training_image(frame_bgr, suffix=""):
+    if suffix in _TRAINING_SAVED_THIS_RUN:
+        return
+
+    os.makedirs(CHIP_TRAINING_FOLDER, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    suffix_part = f"_{suffix}" if suffix else ""
+    training_path = os.path.join(
+        CHIP_TRAINING_FOLDER,
+        f"chip{suffix_part}_{timestamp}.png"
+    )
+
+    counter = 1
+    while os.path.exists(training_path):
+        training_path = os.path.join(
+            CHIP_TRAINING_FOLDER,
+            f"chip{suffix_part}_{timestamp}_{counter}.png"
+        )
+        counter += 1
+
+    if cv2.imwrite(training_path, frame_bgr):
+        _TRAINING_SAVED_THIS_RUN.add(suffix)
+        print(f"Saved training image: {training_path}")
+    else:
+        print(f"Failed to save training image: {training_path}")
+
 # --- Save Full Frame + Crop Indexed ---
 def save_full_and_crop(frame, bbox, idx, suffix=""):
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     full_path = os.path.join(SAVE_FOLDER, f"chip{suffix}.png")
     archive_existing_image(full_path)
-    cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    full_frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(full_path, full_frame_bgr)
+    save_chip_training_image(full_frame_bgr, suffix)
 
     x1, y1, x2, y2 = bbox
     h, w, _ = frame.shape
@@ -257,7 +288,9 @@ def app_callback(pad, info, user_data: UserAppCallback):
                 if not crop_list:
                     full_path = os.path.join(SAVE_FOLDER, "chip.png")
                     archive_existing_image(full_path)
-                    cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    full_frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(full_path, full_frame_bgr)
+                    save_chip_training_image(full_frame_bgr)
                     f.write("No detections found\n\n")
                 else:
                     for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
@@ -291,7 +324,9 @@ def app_callback(pad, info, user_data: UserAppCallback):
                 print("ℹ️ Frame 2: No detections found; saving full frame only.")
                 full_path = os.path.join(SAVE_FOLDER, "chip2.png")
                 archive_existing_image(full_path)
-                cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                full_frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(full_path, full_frame_bgr)
+                save_chip_training_image(full_frame_bgr, "2")
                 f.write("No detections found\n\n")
             else:
                 for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):

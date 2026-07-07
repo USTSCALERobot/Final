@@ -11,10 +11,12 @@ OCR_HANDLER         = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/o
 ARM_HANDLER         = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2/Pick_coord_from_crop_txt3.py"
 MOTOR2_HANDLER      = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/Motor_Drive_After_OCR2.py"
 UI_HANDLER          = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/UIChipRequest2.py"
+DEFECT_HANDLER      = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/defectdetect.py"
 
 SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 FLAG_FILE      = os.path.join(SAVE_FOLDER, "multi_capture.flag")
+DEFECT_FLAG_FILE = os.path.join(SAVE_FOLDER, "defect_flag.txt")
 
 # Optional: tune between-frames nudge in one place (both CV + Arm respect this via env)
 EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
@@ -76,6 +78,27 @@ def run_ocr_handler():
         sys.exit(f"❌ OCR Handler failed with return code {result.returncode}")
     print("✅ OCR completed.")
 
+def run_defect_handler():
+    print("\n=== Defect: Roboflow full-chip inspection ===")
+    image_path = os.path.join(SAVE_FOLDER, "chip.png")
+    if not os.path.exists(image_path):
+        sys.exit(f"Full chip image missing for defect check: {image_path}")
+
+    output_dir = os.path.join(SAVE_FOLDER, "roboflow_workflow_results")
+    result = subprocess.run([
+        "python3",
+        DEFECT_HANDLER,
+        "--image",
+        image_path,
+        "--output",
+        output_dir,
+        "--flag-output",
+        DEFECT_FLAG_FILE,
+    ])
+    if result.returncode != 0:
+        sys.exit(f"Defect check failed with return code {result.returncode}")
+    print("Defect check completed.")
+
 def run_motor2_handler(seconds=None):
     print("\n=== Belt: move parts to arm station ===")
 #    cmd = ["python3", MOTOR2_HANDLER]
@@ -118,6 +141,10 @@ def main():
     if not ok:
         sys.exit("❌ latest_detection.txt not found after vision stage.")
     print(f"ℹ️ Detection file status: {status}")
+    # 3) Defect check on the full chip image. The arm reads defect_flag.txt.
+    run_defect_handler()
+    time.sleep(0.5)
+
     print("Starting OCR")
 
     # 3) OCR (reads FRAME sections, appends OCR blocks that include 'Frame: N')

@@ -41,6 +41,13 @@ def transform_coordinates(x1, y1):
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
+DEFECT_FLAG_FILE = "/home/scalepi/Desktop/savephototest/defect_flag.txt"
+DEFECT_DROP_OFF = (
+    float(os.getenv("DEFECT_DROP_X", "18.5")),
+    float(os.getenv("DEFECT_DROP_Y", "20")),
+    float(os.getenv("DEFECT_DROP_Z", "25")),
+    float(os.getenv("DEFECT_DROP_ANGLE", "90")),
+)
 
 
 def load_circuits(filepath):
@@ -62,6 +69,21 @@ def load_circuits(filepath):
             circuits[key][part] = (nums[0], nums[1], nums[2], nums[3])
 
     return circuits
+
+
+def read_defect_flag(filepath=DEFECT_FLAG_FILE):
+    if not os.path.exists(filepath):
+        return False, {}
+
+    values = {}
+    with open(filepath, 'r') as file:
+        for line in file:
+            key, sep, value = line.strip().partition("=")
+            if sep:
+                values[key.strip()] = value.strip()
+
+    detected = values.get("DEFECT_DETECTED", "0").lower() in ("1", "true", "yes")
+    return detected, values
 
 
 def get_detections_from_file(filename):
@@ -277,6 +299,14 @@ def main():
     else:
         print(f"⚠️ Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
     
+    defect_detected, defect_info = read_defect_flag()
+    if defect_detected:
+        label = defect_info.get("DEFECT_LABEL", "unknown")
+        confidence = defect_info.get("DEFECT_CONFIDENCE", "unknown")
+        print(f"Defect flag is active: {label} ({confidence}). Chips will go to defect bin.")
+    else:
+        print("No active defect flag. Using normal drop-off routing.")
+
     try:
         with open(filename, 'r') as f:
             content = f.read()
@@ -351,7 +381,11 @@ def main():
         phx.rest_position_closed()
 
         # --- Drop-off ---
-        if part_name == "None" or part_circuit is None:
+        if defect_detected:
+            dx, dy, dz, desired_angle = DEFECT_DROP_OFF
+            print(f"Dropping off defective chip at ({dx:.2f},{dy:.2f},{dz:.2f}), theta = {desired_angle:.2f}")
+            drop_off(dx, dy, dz, desired_angle)
+        elif part_name == "None" or part_circuit is None:
             dx, dy, dz, desired_angle = 18.5, -20, 25, -90    #raised to height of 25 for now this is supposed to be droppoff location 
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)

@@ -32,7 +32,7 @@ DEFAULT_WORKSPACE = "ryans-workspace-wugmo"
 DEFAULT_WORKFLOW_ID = "integrated-circuit-ic-swcjc"
 DEFAULT_SAVE_FOLDER = "/home/scalepi/Desktop/savephototest"
 DEFAULT_FLAG_OUTPUT = os.path.join(DEFAULT_SAVE_FOLDER, "defect_flag.txt")
-DEFAULT_THRESHOLD = 0.70
+DEFAULT_THRESHOLD = 0.0
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 NON_DEFECT_LABELS = {"good", "ok", "pass", "passed", "normal", "no_defect", "no defect", "none"}
 

@@ -123,6 +123,9 @@ def load_previous_request():
         print(f"Error loading previous request: {e}")
 
 def enable_large_selection():
+    reset_large_selection_default()
+    print("Large-part selection is disabled for right now.")
+    return
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     with open(FLAG_PATH, "w") as f:
         f.write("1\n")
@@ -135,8 +138,17 @@ def disable_large_selection():
     except FileNotFoundError:
         print("⚪ Large-part selection already disabled")
 
+def reset_large_selection_default():
+    try:
+        os.remove(FLAG_PATH)
+        print("Large-part selection reset to OFF for this request.")
+    except FileNotFoundError:
+        pass
+
 # --- GUI ---
 if __name__ == "__main__":
+    reset_large_selection_default()
+
     chip_request = tk.Tk()
     chip_request.title("GUI Chip Request")
     chip_request.minsize(360, 240)

@@ -82,17 +82,23 @@ def ik3(xyz_array):
     phi2 = np.arctan2(r2, r1)
     # Eqn 5
     r3 = np.hypot(r1, r2)
+    if r3 > (link_lengths[1] + link_lengths[2]) or r3 < abs(link_lengths[1] - link_lengths[2]):
+        raise ValueError(
+            f"Target {xyz_array} is out of reach: shoulder distance {r3:.2f}, "
+            f"allowed range {abs(link_lengths[1] - link_lengths[2]):.2f}-"
+            f"{(link_lengths[1] + link_lengths[2]):.2f}"
+        )
     # Eqn 6
     num6 = np.power(link_lengths[2], 2) - np.power(link_lengths[1], 2) - np.power(r3, 2)
     den6 = -2 * link_lengths[1] * r3
-    phi1 = np.arccos(num6 / den6)
+    phi1 = np.arccos(np.clip(num6 / den6, -1.0, 1.0))
     # Eqn 7
     # theta_2 = phi2 - phi1  # elbow down
     theta_2 = phi2 + phi1
     # Eqn 8
     num8 = np.power(r3, 2) - np.power(link_lengths[1], 2) - np.power(link_lengths[2], 2)
     den8 = -2 * link_lengths[1] * link_lengths[2]
-    phi3 = np.arccos(num8 / den8)
+    phi3 = np.arccos(np.clip(num8 / den8, -1.0, 1.0))
     # Eqn 9
     # theta_3 = pi - phi3 # elbow down
     theta_3 = -(np.pi - phi3)

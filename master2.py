@@ -26,9 +26,21 @@ EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
 # Attempt to change python to 3.13.5 aka current python in venv, but fallback to "python3" if that path doesn't exist (e.g., if venv was recreated and python version changed)
 HAILO_PYTHON = "/usr/bin/python3"
 
+def clear_stale_large_part_flag():
+    try:
+        os.remove(FLAG_FILE)
+        print(f"Cleared stale large-part flag: {FLAG_FILE}")
+    except FileNotFoundError:
+        pass
+
 def run_ui_chip_request():
     print("\n=== UI: request input (part/circuit, large-part toggle) ===")
+    clear_stale_large_part_flag()
     result = subprocess.run(["python3", UI_HANDLER])
+    if os.path.exists(FLAG_FILE):
+        print("Large-part two-frame mode is ENABLED for this run.")
+    else:
+        print("Large-part two-frame mode is OFF for this run.")
     if result.returncode != 0:
         sys.exit(f"❌ UI Chip Request failed with return code {result.returncode}")
     print("✅ UI complete.")
@@ -38,6 +50,8 @@ def run_chip_vision_handler():
 
     env = os.environ.copy()
     env["EXTRA_RUN_SEC"] = EXTRA_RUN_SEC
+    env["DISABLE_MULTI_CAPTURE"] = "1"
+    env["MULTI_CAPTURE_ENABLED"] = "0"
 
     # changed from chat suggestion
     env["TAPPAS_POST_PROC_DIR"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes"
@@ -94,6 +108,7 @@ def run_defect_handler():
         output_dir,
         "--flag-output",
         DEFECT_FLAG_FILE,
+        "--no-cache",
     ])
     if result.returncode != 0:
         sys.exit(f"Defect check failed with return code {result.returncode}")

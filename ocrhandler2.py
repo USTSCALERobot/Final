@@ -67,9 +67,8 @@ def read_detection_file():
 
 # --- Run OCR ---
 def run_ocr():
-    image_path = read_detection_file()
-    print(f"Running OCR on image: {image_path}")
-    cmd = ["/usr/bin/python3", OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
+    print(f"Running OCR from detection file: {DETECTION_FILE}")
+    cmd = ["/usr/bin/python3", OCR_SCRIPT]
     print("▶", " ".join(cmd))
     result = subprocess.run(cmd)
     if result.returncode != 0:

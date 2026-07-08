@@ -42,12 +42,14 @@ def transform_coordinates(x1, y1):
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
 DEFECT_FLAG_FILE = "/home/scalepi/Desktop/savephototest/defect_flag.txt"
+DEFECT_PART_NAME = os.getenv("DEFECT_PART_NAME", "DEFECTIVE").strip()
 DEFECT_DROP_OFF = (
-    float(os.getenv("DEFECT_DROP_X", "18.5")),
-    float(os.getenv("DEFECT_DROP_Y", "20")),
-    float(os.getenv("DEFECT_DROP_Z", "25")),
-    float(os.getenv("DEFECT_DROP_ANGLE", "90")),
+    float(os.getenv("DEFECT_DROP_X", "20")),
+    float(os.getenv("DEFECT_DROP_Y", "0")),
+    float(os.getenv("DEFECT_DROP_Z", "21")),
+    float(os.getenv("DEFECT_DROP_ANGLE", "-90")),
 )
+DROP_LIFT_Z = float(os.getenv("DROP_LIFT_Z", "4.25"))
 
 
 def load_circuits(filepath):
@@ -84,6 +86,22 @@ def read_defect_flag(filepath=DEFECT_FLAG_FILE):
 
     detected = values.get("DEFECT_DETECTED", "0").lower() in ("1", "true", "yes")
     return detected, values
+
+
+def get_defect_drop_off(circuits, part_circuit):
+    defect_key = DEFECT_PART_NAME.upper()
+    candidate_circuits = []
+    if part_circuit:
+        candidate_circuits.append(part_circuit.upper())
+    candidate_circuits.append("CIRCUIT1")
+
+    for circuit_name in candidate_circuits:
+        circuit = circuits.get(circuit_name, {})
+        for part_name, coords in circuit.items():
+            if part_name.strip().upper() == defect_key:
+                return coords, f"{circuit_name}:{part_name}"
+
+    return DEFECT_DROP_OFF, "DEFECT_DROP_OFF fallback"
 
 
 def get_detections_from_file(filename):
@@ -247,7 +265,7 @@ def drop_off(x, y, z, desired_angle):
 
     # Step 6: perform motion
     print(f"Dropping off at {drop_off_pos}, base θ₀₋₄ = {theta0_4}")
-    move_to_position_with_z_adjustment(drop_off_pos, theta0_4)
+    move_to_position_with_z_adjustment(drop_off_pos, theta0_4, z_adjustment=DROP_LIFT_Z)
     phx.open_gripper2()
     print("Gripper opened at drop-off location.")
     time.sleep(2.5)
@@ -382,8 +400,11 @@ def main():
 
         # --- Drop-off ---
         if defect_detected:
-            dx, dy, dz, desired_angle = DEFECT_DROP_OFF
-            print(f"Dropping off defective chip at ({dx:.2f},{dy:.2f},{dz:.2f}), theta = {desired_angle:.2f}")
+            (dx, dy, dz, desired_angle), defect_source = get_defect_drop_off(circuits, part_circuit)
+            print(
+                f"Dropping off defective chip using {defect_source} at "
+                f"({dx:.2f},{dy:.2f},{dz:.2f}), theta = {desired_angle:.2f}"
+            )
             drop_off(dx, dy, dz, desired_angle)
         elif part_name == "None" or part_circuit is None:
             dx, dy, dz, desired_angle = 18.5, -20, 25, -90    #raised to height of 25 for now this is supposed to be droppoff location 

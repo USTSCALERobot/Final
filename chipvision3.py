@@ -82,6 +82,15 @@ PAUSE_SEC = 1.0     # pause after Frame 1
 NUDGE_SEC = 1.5     # motor run between Frame 1 and Frame 2
 STOP_Y_THRESHOLD = float(os.getenv("STOP_Y_THRESHOLD", "0.35"))
 FRAME1_SETTLE_MS = int(os.getenv("FRAME1_SETTLE_MS", "500"))
+DISABLE_MULTI_CAPTURE = os.getenv("DISABLE_MULTI_CAPTURE", "1").strip().lower() in ("1", "true", "yes", "on")
+
+def multi_capture_enabled():
+    if DISABLE_MULTI_CAPTURE:
+        return False
+    env_value = os.getenv("MULTI_CAPTURE_ENABLED")
+    if env_value is not None:
+        return env_value.strip().lower() in ("1", "true", "yes", "on")
+    return os.path.exists(MULTI_CAPTURE_FLAG)
 
 # --- Environment Activation Function ---
 def activate_hailo_env():
@@ -118,6 +127,8 @@ class UserAppCallback(app_callback_class):
         self.ready_frame2 = False   # set True after pause + nudge complete
         self.did_frame2   = False
         self.stop_detection = False # detach pad probe when done
+        self.pending_frame1 = None
+        self.pending_crop_list1 = []
 
 # --- Extract Raw Frame Utility ---
 def extract_raw_frame(buffer, width, height):
@@ -219,6 +230,13 @@ def _stop_and_quit_async(user_data: UserAppCallback):
 
 # --- Schedule: 1s pause, then 1.5s nudge, then mark ready for Frame 2 ---
 def _schedule_pause_then_nudge(user_data: UserAppCallback):
+    print("Multi-capture is disabled; skipping Frame 2 belt nudge.")
+    user_data.need_frame2 = False
+    user_data.ready_frame2 = False
+    user_data.stop_detection = True
+    GLib.idle_add(_stop_and_quit_async, user_data)
+    return False
+
     def _start_nudge():
         print(f"🔵 Large-parts: starting {NUDGE_SEC:.1f}s belt nudge…")
         start_motor()
@@ -268,6 +286,8 @@ def app_callback(pad, info, user_data: UserAppCallback):
             trigger_stop = any(y1 > STOP_Y_THRESHOLD for (_, y1, _, _) in crop_list)
             if trigger_stop:
                 max_y1 = max(y1 for (_, y1, _, _) in crop_list)
+                user_data.pending_frame1 = frame.copy()
+                user_data.pending_crop_list1 = list(crop_list)
                 print(
                     f"Triggering motor stop at y1={max_y1:.2f} "
                     f"(threshold={STOP_Y_THRESHOLD:.2f}); "
@@ -289,24 +309,30 @@ def app_callback(pad, info, user_data: UserAppCallback):
             user_data.have_frame1 = True
             user_data.ready_frame1 = False
             user_data.stopping_for_frame1 = False
+            save_frame = frame
+            save_crop_list = crop_list
+            if not save_crop_list and user_data.pending_frame1 is not None:
+                print("No detections after settle; using trigger frame detections for Frame 1.")
+                save_frame = user_data.pending_frame1
+                save_crop_list = user_data.pending_crop_list1
 
             with open(DETECTION_FILE, "w") as f:
                 f.write("FRAME=1\n")
-                if not crop_list:
+                if not save_crop_list:
                     full_path = os.path.join(SAVE_FOLDER, "chip.png")
                     archive_existing_image(full_path)
-                    full_frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    full_frame_bgr = cv2.cvtColor(save_frame, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(full_path, full_frame_bgr)
                     save_chip_training_image(full_frame_bgr)
                     f.write("No detections found\n\n")
                 else:
-                    for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
+                    for i, (x1, y1, x2, y2) in enumerate(save_crop_list, start=1):
                         print(f"Saving Crop {i} (Frame 1)")
-                        full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="")
+                        full, crop = save_full_and_crop(save_frame, (x1, y1, x2, y2), i, suffix="")
                         f.write(f"Cropped Photo Location: {full},{crop}\n")
                         f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
 
-            if os.path.exists(MULTI_CAPTURE_FLAG):
+            if multi_capture_enabled():
                 user_data.need_frame2  = True
                 user_data.ready_frame2 = False
                 GLib.idle_add(_schedule_pause_then_nudge, user_data)

@@ -43,6 +43,7 @@ CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
 DEFECT_FLAG_FILE = "/home/scalepi/Desktop/savephototest/defect_flag.txt"
 DEFECT_PART_NAME = os.getenv("DEFECT_PART_NAME", "DEFECTIVE").strip()
+ROUTE_UNKNOWN_TO_DEFECTIVE = os.getenv("ROUTE_UNKNOWN_TO_DEFECTIVE", "1").strip().lower() in ("1", "true", "yes", "on")
 DEFECT_DROP_OFF = (
     float(os.getenv("DEFECT_DROP_X", "20")),
     float(os.getenv("DEFECT_DROP_Y", "0")),
@@ -88,24 +89,24 @@ def read_defect_flag(filepath=DEFECT_FLAG_FILE):
     return detected, values
 
 
-def get_defect_drop_off(circuits, part_circuit):
-    defect_key = DEFECT_PART_NAME.upper()
-    candidate_circuits = []
-    if part_circuit:
-        candidate_circuits.append(part_circuit.upper())
-    candidate_circuits.append("CIRCUIT1")
-
-    for circuit_name in candidate_circuits:
-        circuit = circuits.get(circuit_name, {})
-        for part_name, coords in circuit.items():
-            if part_name.strip().upper() == defect_key:
-                return coords, f"{circuit_name}:{part_name}"
-
-    print(
-        f"DEFECTIVE placement '{DEFECT_PART_NAME}' not found. "
-        f"Available CIRCUIT1 entries: {list(circuits.get('CIRCUIT1', {}).keys())}"
+def should_route_to_defective(defect_detected, part_name):
+    return defect_detected or (
+        ROUTE_UNKNOWN_TO_DEFECTIVE and str(part_name).strip().lower() == "none"
     )
-    return DEFECT_DROP_OFF, "DEFECT_DROP_OFF fallback"
+
+
+def get_defect_drop_off(circuits):
+    defect_key = DEFECT_PART_NAME.upper()
+    circuit = circuits.get("CIRCUIT1", {})
+    for part_name, coords in circuit.items():
+        if part_name.strip().upper() == defect_key:
+            return coords, f"CIRCUIT1:{part_name}"
+
+    available = list(circuit.keys())
+    raise ValueError(
+        f"Required defective placement '{DEFECT_PART_NAME}' not found in {CIRCUITS_FILE}. "
+        f"Available CIRCUIT1 entries: {available}"
+    )
 
 
 def get_detections_from_file(filename):
@@ -325,16 +326,23 @@ def main():
     circuits = {}
     if os.path.exists(CIRCUITS_FILE):
         circuits = load_circuits(CIRCUITS_FILE)
+        print(f"Loaded circuit mappings from {CIRCUITS_FILE}")
+        print(f"CIRCUIT1 entries: {list(circuits.get('CIRCUIT1', {}).keys())}")
     else:
         print(f"⚠️ Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
     
     defect_detected, defect_info = read_defect_flag()
+    print(f"Defect flag file: {DEFECT_FLAG_FILE}")
+    print(f"Defect flag values: {defect_info}")
     if defect_detected:
         label = defect_info.get("DEFECT_LABEL", "unknown")
         confidence = defect_info.get("DEFECT_CONFIDENCE", "unknown")
         print(f"Defect flag is active: {label} ({confidence}). Chips will go to defect bin.")
     else:
-        print("No active defect flag. Using normal drop-off routing.")
+        print(
+            "No active defect flag. "
+            f"Unknown-to-defective routing is {'ON' if ROUTE_UNKNOWN_TO_DEFECTIVE else 'OFF'}."
+        )
 
     try:
         with open(filename, 'r') as f:
@@ -410,10 +418,12 @@ def main():
         phx.rest_position_closed()
 
         # --- Drop-off ---
-        if defect_detected:
-            (dx, dy, dz, desired_angle), defect_source = get_defect_drop_off(circuits, part_circuit)
+        route_to_defective = should_route_to_defective(defect_detected, part_name)
+        if route_to_defective:
+            (dx, dy, dz, desired_angle), defect_source = get_defect_drop_off(circuits)
+            route_reason = "defect flag" if defect_detected else "unrecognized chip"
             print(
-                f"Dropping off defective chip using {defect_source} at "
+                f"Dropping off chip via defective route ({route_reason}) using {defect_source} at "
                 f"({dx:.2f},{dy:.2f},{dz:.2f}), theta = {desired_angle:.2f}"
             )
             drop_off(dx, dy, dz, desired_angle)

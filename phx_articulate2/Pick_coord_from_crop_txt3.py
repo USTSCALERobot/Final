@@ -101,6 +101,10 @@ def get_defect_drop_off(circuits, part_circuit):
             if part_name.strip().upper() == defect_key:
                 return coords, f"{circuit_name}:{part_name}"
 
+    print(
+        f"DEFECTIVE placement '{DEFECT_PART_NAME}' not found. "
+        f"Available CIRCUIT1 entries: {list(circuits.get('CIRCUIT1', {}).keys())}"
+    )
     return DEFECT_DROP_OFF, "DEFECT_DROP_OFF fallback"
 
 
@@ -180,9 +184,12 @@ def move_to_position_with_z_adjustment(pickup_pos, theta0_4, z_adjustment=15):
     intermediate_pos = pickup_pos.copy()
     intermediate_pos[2] += z_adjustment
     print(f"Moving to intermediate position (Z first): {intermediate_pos}")
-    go_to_pos(intermediate_pos, theta0_4)
+    if not go_to_pos(intermediate_pos, theta0_4):
+        return False
     print(f"Moving to final position: {pickup_pos}")
-    go_to_pos(pickup_pos, theta0_4)
+    if not go_to_pos(pickup_pos, theta0_4):
+        return False
+    return True
 
 
 def set_gripper(position):
@@ -265,7 +272,10 @@ def drop_off(x, y, z, desired_angle):
 
     # Step 6: perform motion
     print(f"Dropping off at {drop_off_pos}, base θ₀₋₄ = {theta0_4}")
-    move_to_position_with_z_adjustment(drop_off_pos, theta0_4, z_adjustment=DROP_LIFT_Z)
+    if not move_to_position_with_z_adjustment(drop_off_pos, theta0_4, z_adjustment=DROP_LIFT_Z):
+        print("Drop-off move failed; keeping gripper closed and returning to safe position.")
+        go_to_pos([10, 0, 25], 0)
+        return False
     phx.open_gripper2()
     print("Gripper opened at drop-off location.")
     time.sleep(2.5)
@@ -277,6 +287,7 @@ def drop_off(x, y, z, desired_angle):
 
     print("Returning to rest position...")
     phx.rest_position()
+    return True
 
 
 

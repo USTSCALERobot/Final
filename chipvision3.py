@@ -80,6 +80,8 @@ MULTI_CAPTURE_FLAG = os.path.join(SAVE_FOLDER, "multi_capture.flag")
 # EXACT timing per your clarification:
 PAUSE_SEC = 1.0     # pause after Frame 1
 NUDGE_SEC = 1.5     # motor run between Frame 1 and Frame 2
+STOP_Y_THRESHOLD = float(os.getenv("STOP_Y_THRESHOLD", "0.35"))
+FRAME1_SETTLE_MS = int(os.getenv("FRAME1_SETTLE_MS", "500"))
 
 # --- Environment Activation Function ---
 def activate_hailo_env():
@@ -260,18 +262,23 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- Frame 1: stop when y1 > 0.40 ----------
+    # ---------- Frame 1: stop when the detection reaches the configured Y threshold ----------
     if not user_data.have_frame1:
         if not getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
-            trigger_stop = any(y1 > 0.40 for (_, y1, _, _) in crop_list)
+            trigger_stop = any(y1 > STOP_Y_THRESHOLD for (_, y1, _, _) in crop_list)
             if trigger_stop:
-                print(" Triggering motor stop and waiting 500ms for belt to settle...")
+                max_y1 = max(y1 for (_, y1, _, _) in crop_list)
+                print(
+                    f"Triggering motor stop at y1={max_y1:.2f} "
+                    f"(threshold={STOP_Y_THRESHOLD:.2f}); "
+                    f"waiting {FRAME1_SETTLE_MS}ms for belt to settle..."
+                )
                 stop_motor()
                 user_data.stopping_for_frame1 = True
                 def _ready_f1():
                     user_data.ready_frame1 = True
                     return False
-                GLib.timeout_add(500, _ready_f1)
+                GLib.timeout_add(FRAME1_SETTLE_MS, _ready_f1)
             return Gst.PadProbeReturn.OK
             
         if getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):

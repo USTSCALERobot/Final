@@ -4,7 +4,7 @@ Run the Roboflow hosted workflow for integrated circuit defect detection.
 
 Examples:
     python defectdetect.py
-    python defectdetect.py --image savephototest/chip.png
+    python defectdetect.py --image savephototest/chip_cropped_1.png
     python defectdetect.py --image orin_nano/pcb_ic_dataset --max-images 10
 
 The default API key, workspace, and workflow ID match the Roboflow workflow
@@ -45,7 +45,7 @@ def parse_args():
         "--image",
         "--images",
         dest="image_path",
-        default=os.path.join(DEFAULT_SAVE_FOLDER, "chip.png"),
+        default=os.path.join(DEFAULT_SAVE_FOLDER, "chip_cropped_1.png"),
         help="Image file or folder of images to send to the workflow.",
     )
     parser.add_argument(

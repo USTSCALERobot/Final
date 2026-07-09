@@ -50,7 +50,7 @@ DEFECT_DROP_OFF = (
     float(os.getenv("DEFECT_DROP_Z", "21")),
     float(os.getenv("DEFECT_DROP_ANGLE", "-90")),
 )
-DROP_LIFT_Z = float(os.getenv("DROP_LIFT_Z", "4.25"))
+DROP_LIFT_Z = float(os.getenv("DROP_LIFT_Z", "0"))
 
 
 def load_circuits(filepath):

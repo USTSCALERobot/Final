@@ -92,11 +92,29 @@ def run_ocr_handler():
         sys.exit(f"❌ OCR Handler failed with return code {result.returncode}")
     print("✅ OCR completed.")
 
+def get_first_crop_path():
+    try:
+        lines = Path(DETECTION_FILE).read_text().splitlines()
+    except FileNotFoundError:
+        sys.exit(f"Detection file missing for defect check: {DETECTION_FILE}")
+
+    for line in lines:
+        line = line.strip()
+        if not line.startswith("Cropped Photo Location:"):
+            continue
+        _, _, payload = line.partition(":")
+        parts = payload.split(",", 1)
+        if len(parts) == 2 and parts[1].strip():
+            return parts[1].strip()
+
+    sys.exit(f"No cropped image path found for defect check in {DETECTION_FILE}")
+
 def run_defect_handler():
-    print("\n=== Defect: Roboflow full-chip inspection ===")
-    image_path = os.path.join(SAVE_FOLDER, "chip.png")
+    print("\n=== Defect: Roboflow cropped-chip inspection ===")
+    image_path = get_first_crop_path()
     if not os.path.exists(image_path):
-        sys.exit(f"Full chip image missing for defect check: {image_path}")
+        sys.exit(f"Cropped chip image missing for defect check: {image_path}")
+    print(f"Defect image: {image_path}")
 
     output_dir = os.path.join(SAVE_FOLDER, "roboflow_workflow_results")
     result = subprocess.run([

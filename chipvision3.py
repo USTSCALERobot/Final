@@ -70,7 +70,11 @@ HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin
 SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 TRAINING_DATA_FOLDER = os.path.join(SAVE_FOLDER, "trainingData")
-CHIP_TRAINING_FOLDER = "/home/scalepi/Desktop/chip_training"
+PROJECT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+CHIP_TRAINING_FOLDER = os.getenv(
+    "CHIP_TRAINING_FOLDER",
+    os.path.join(PROJECT_FOLDER, "training_data", "chip_training"),
+)
 _ARCHIVED_THIS_RUN = set()
 _TRAINING_SAVED_THIS_RUN = set()
 

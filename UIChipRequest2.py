@@ -39,7 +39,7 @@ DURATION = 2.0
 N_MFCC = 32
 HOP_LENGTH = 512
 N_FFT = 2048
-WAKE_MODEL_PATH = os.path.expanduser("~/Desktop/WakeWordTinyML/tflite_model/hey_dan_model.tflite") # Change this to the path on the Pi
+WAKE_MODEL_PATH = "/home/scalepi/Desktop/tflite_model/hey_dan_model.tflite" # Change this to the path on the Pi
 STOP_LISTENING = False
 
 def process_audio(audio_data):

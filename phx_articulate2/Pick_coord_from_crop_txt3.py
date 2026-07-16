@@ -160,9 +160,15 @@ def pick_up(x, y, additional_angle=0):
     gripper_position = angle_to_motor_steps(adjusted_angle)
     set_gripper(gripper_position)
 
+# check arm position here for esp capture
+    
     # print(f"Moving to the position (X, Y, 25) with theta_4 set.")
     intermediate_pos = [x, y, 25]
     go_to_pos(intermediate_pos, theta0_4)
+
+    time.sleep(3) # freeze to check positioning
+    print("intermediate_pos", "theta0_4")
+# adjust intermediate_pos so that arm is hanging straight down at z=25
 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)

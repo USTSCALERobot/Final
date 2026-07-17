@@ -3,6 +3,7 @@ import phx
 import Pick_coord_from_crop_txt3 as pc
 from time import sleep
 
+phx.rest_position()
 #open and close in a loop removes need to re run program repeatedly
 run = True
 while run == True:

@@ -217,10 +217,10 @@ def turn_on():
 
 def sleep_position():
     waist_deg = 0  # between -150 to 150
-    shoulder_deg = 170  # between 0 and 180
-    elbow_deg = -160  # between 0 and -180
-    wrist_deg = 30
-    all_motors.set_moving_speed(20)
+    shoulder_deg = 170  # between 0 and 180 (170)
+    elbow_deg = -160  # between 0 and -180 (-160)
+    wrist_deg = 30 # (30)
+    all_motors.set_moving_speed(20) #(20)
     set_wsew([waist_deg, shoulder_deg, elbow_deg, wrist_deg])
     wait_for_completion()
 

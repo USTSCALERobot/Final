@@ -162,13 +162,13 @@ def pick_up(x, y, additional_angle=0):
 
 # check arm position here for esp capture
     
-    # print(f"Moving to the position (X, Y, 25) with theta_4 set.")
-    intermediate_pos = [x, y, 25]
+    # print(f"Moving to the position (X, Y, 23) with theta_4 set.")
+    intermediate_pos = [x, y, 23]
     go_to_pos(intermediate_pos, theta0_4)
 
     time.sleep(3) # freeze to check positioning
-    print("intermediate_pos", "theta0_4")
-# adjust intermediate_pos so that arm is hanging straight down at z=25
+    print(str(intermediate_pos), str(theta0_4))
+# adjust intermediate_pos so that arm is hanging straight down at z=23
 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)
@@ -243,7 +243,6 @@ def drop_off(x, y, z, desired_angle):
 
     print("Returning to rest position...")
     phx.rest_position()
-
 
 
 

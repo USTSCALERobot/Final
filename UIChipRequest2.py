@@ -153,10 +153,9 @@ def save_no_input():
 
 
 def speech_to_text():
- #   dan_listen.config(text="Hello waiting for response", background="Green")
+ 
     print("🎙️ Running Vosk voice recognition...")
-   # dan_listen.config(text="Hello waiting for response", background="Green")
-    #time.sleep(0.1)  # Small pause to ensure wake thread fully exits
+
     if 'listener_thread' in globals() and listener_thread.is_alive():
         listener_thread.join(timeout=1)
     try:
@@ -201,7 +200,9 @@ def load_previous_request():
 
 
 def on_wakeword_detected(event):
-    dan_listen.config(text="Hello waiting for response", background="Green")
+    dan_listen.config(text="Hello, waiting for command", background="Green")
+    dan_listen.update()
+
     print("GUI received wake-word signal. Launching Vosk...")
    #
     speech_to_text()
@@ -222,7 +223,7 @@ if __name__ == "__main__":
     tk.Label(text="Chip / Circuit Input").pack(pady=(8,2))
     chip_id = tk.Entry()
     chip_id.pack(fill="x", padx=10)
-    dan_listen = tk.Label(text="Listening for Hey Dan", background="Blue")
+    dan_listen = tk.Label(text="Listening for Hey Dan",background="red")
     dan_listen.pack(pady= 3)
     tk.Button(chip_request, text="Speech to Text (Vosk)",   command=speech_to_text).pack(pady=3)
     tk.Button(chip_request, text="Submit Part Request",   command=save_input).pack(pady=3)

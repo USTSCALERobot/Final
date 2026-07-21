@@ -37,7 +37,7 @@ def transform_coordinates(x1, y1):
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
     # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left - 5.1        # the extra .15 is an additional shift from guess and check
+    y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -151,7 +151,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 21.0]      # 21 is the height of the pickup position  
+    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickup position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -167,16 +167,17 @@ def pick_up(x, y, additional_angle=0):
     intermediate_pos = [x, y, 23]
     go_to_pos(intermediate_pos, theta0_4)
 
-    time.sleep(3) # freeze to check positioning
+    time.sleep(1.5) # freeze to check positioning
     print(str(intermediate_pos), str(theta0_4))
 # adjust intermediate_pos so that arm is hanging straight down at z=23
-
+    phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)
     phx.close_gripper2()
     # print("Gripper closed at the pick up location.")
     time.sleep(3.5)
-
+    # restore motion speed back to default
+    phx.all_motors.set_moving_speed(phx.default_speed)
     # print(f"Moving up to clear the area: (X, Y, 25).")
     intermediate_pos[2] = 25
     go_to_pos(intermediate_pos, theta0_4)

@@ -349,7 +349,7 @@ def stop_pipeline_safe(pipeline, main_loop):
 if __name__ == "__main__":
     activate_hailo_env()
     Gst.init(None)
-
+    #setup
     dummy = Gst.Pipeline.new("dummy-pipeline")
     user_data = UserAppCallback(dummy, None)
     app = GStreamerDetectionApp(app_callback, user_data)

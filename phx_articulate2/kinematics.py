@@ -144,7 +144,7 @@ def line_demo():
     p_start = np.array([-15, -15,  5])
     p_end = np.array([20, 0,  15])
 
-    inter_size = 60
+    inter_size = 150 # was 60 (number of steps arm takes)
     r_matrix = interpolate_line(p_start, p_end, inter_size)
     print(r_matrix)
 

@@ -14,7 +14,6 @@ UI_HANDLER          = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/U
 
 SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
-FLAG_FILE      = os.path.join(SAVE_FOLDER, "multi_capture.flag")
 
 # Optional: tune between-frames nudge in one place (both CV + Arm respect this via env)
 EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
@@ -106,7 +105,7 @@ def _file_has_frames(path):
     return True, ("Frame1+2" if (f1 and f2) else ("Frame1 only" if f1 else "no Frame markers"))
 
 def main():
-    # 1) UI request (sets chip_request_input.txt and possibly multi_capture.flag)
+    # 1) UI request (sets chip_request_input.txt)
     run_ui_chip_request()
     time.sleep(0.5)
 
@@ -137,5 +136,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n🛑 Master process interrupted by user. Exiting.")
+        print("\n Master process interrupted by user. Exiting.")
         sys.exit(0)

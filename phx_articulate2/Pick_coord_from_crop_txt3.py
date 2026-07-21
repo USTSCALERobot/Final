@@ -36,7 +36,8 @@ def transform_coordinates(x1, y1):
     y_right = -10
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
-    y2 = y1 * (y_right - y_left) + y_left + 0.5     # 5mm ofset to the y axis
+    # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
+    y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -93,7 +94,7 @@ def calculate_angle(x, y):
     #     angle_rad -= (math.pi) / 4
     #     angle_deg = math.degrees(angle_rad) + 45
     theta_0 = math.degrees(math.atan2(y,x))
-    angle_deg = 180 - theta_0
+    angle_deg = 180 + (theta_0 * 1.20)   #1.2 scale to compensate for the servo 300 degree 360/300 1.2
     if angle_deg < 0:
         angle_deg += 360
     # else:
@@ -111,13 +112,13 @@ def angle_to_motor_steps(angle_deg):
 
 
 def adjust_gripper_angle(current_angle, additional_angle):
-    adjusted_angle = current_angle + additional_angle
+    adjusted_angle = current_angle + (additional_angle * 1.20)
     print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
     return adjusted_angle
 
 
 def readjusted_gripper_angle(current_angle, additional_angle):
-    adjusted_angle = current_angle - additional_angle
+    adjusted_angle = current_angle - (additional_angle * 1.20)
     print(f"Gripper adjusted by {additional_angle} degrees. New angle: {adjusted_angle:.2f}")
     return adjusted_angle
 
@@ -150,7 +151,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 21]       
+    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickup position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -160,16 +161,23 @@ def pick_up(x, y, additional_angle=0):
     gripper_position = angle_to_motor_steps(adjusted_angle)
     set_gripper(gripper_position)
 
-    # print(f"Moving to the position (X, Y, 25) with theta_4 set.")
-    intermediate_pos = [x, y, 25]
+# check arm position here for esp capture
+    
+    # print(f"Moving to the position (X, Y, 23) with theta_4 set.")
+    intermediate_pos = [x, y, 23]
     go_to_pos(intermediate_pos, theta0_4)
 
+    time.sleep(1.5) # freeze to check positioning
+    print(str(intermediate_pos), str(theta0_4))
+# adjust intermediate_pos so that arm is hanging straight down at z=23
+    phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)
     phx.close_gripper2()
     # print("Gripper closed at the pick up location.")
     time.sleep(3.5)
-
+    # restore motion speed back to default
+    phx.all_motors.set_moving_speed(phx.default_speed)
     # print(f"Moving up to clear the area: (X, Y, 25).")
     intermediate_pos[2] = 25
     go_to_pos(intermediate_pos, theta0_4)
@@ -286,16 +294,8 @@ def main():
 
     blocks = content.strip().split('-----------------------------------')
     detections = []
-
+    
     for block in blocks:
-    #     mp = re.search(r"Chip Middle Point: \(([\d.]+), ([\d.]+)\)", block)
-    #    # ma = re.search(r"Angle of error: ([\d.]+)", block)
-    #     ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
-    #     rc = re.search(r"Requested Part\(s\):\s*(CIRCUIT\d+)", block)
-    #     mm = re.search(r"Match parts for mapping:\s*(.+)", block)
-
-    #     if not (mp and ma and rc and mm):
-    #         continue
         mp = re.search(r"Chip Middle Point:\s*\(([-\d.]+),\s*([-\d.]+)\)", block)
         ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
         rp = re.search(r"Requested Part\(s\):\s*(.+)", block)
@@ -303,17 +303,24 @@ def main():
 
         if not (mp and ma and rp and mm):
             continue
+
         x_raw, y_raw = map(float, mp.groups())
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
+        
+        # Use findall to get ALL Time_Offset matches in the block, and take the LAST one.
+        # This completely ignores any global maximum Time_Offset written at the top of the file.
+        mts = re.findall(r"^Time_Offset:\s*([0-9.]+)", block, flags=re.MULTILINE)
+        time_offset = float(mts[-1]) if mts else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))
-        detections.append((x_raw, y_raw, angle, part_circuit, part_name))
+        detections.append((x_raw, y_raw, angle, part_circuit, part_name, time_offset))
 
     if not detections:
         print("No detections found.")
         return
+
 
     # --- Selection Logic ---
     for i in range(len(detections)):    # This will loop through all the detections
@@ -336,8 +343,14 @@ def main():
         detections.remove(chosen)       
         
         # --- Execute chosen detection ---
-        x_raw, y_raw, angle, part_circuit, part_name = chosen
+        x_raw, y_raw, angle, part_circuit, part_name, time_offset = chosen
         tx, ty = transform_coordinates(x_raw, y_raw)
+
+        # Apply physical offset for trailing chips based on dynamic time delta
+        # Belt speed is ~18.5 cm / 8.25 s = 2.242 cm/s
+        # Since y-axis is parallel to the belt and upstream is +y, we add the offset
+        y_offset_cm = time_offset * 2.242
+        ty += y_offset_cm
 
         if abs(angle) < 1.0:
             pickup_offset = 0

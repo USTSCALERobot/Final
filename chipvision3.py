@@ -12,6 +12,7 @@ import cv2
 import hailo
 from hailo_rpi_common import get_caps_from_pad, app_callback_class
 from detection_pipeline import GStreamerDetectionApp
+import time
 
 # --- Motor GPIO Setup (gpiod 2.x API) ---
 import gpiod
@@ -69,7 +70,7 @@ SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 
 # Two-frame support (no pipeline restart)
-MULTI_CAPTURE_FLAG = os.path.join(SAVE_FOLDER, "multi_capture.flag")
+
 
 # EXACT timing per your clarification:
 PAUSE_SEC = 1.0     # pause after Frame 1
@@ -104,12 +105,12 @@ class UserAppCallback(app_callback_class):
         super().__init__()
         self.pipeline = pipeline
         self.main_loop = main_loop
-        # state for 2-frame flow
-        self.have_frame1  = False
-        self.need_frame2  = False
-        self.ready_frame2 = False   # set True after pause + nudge complete
-        self.did_frame2   = False
-        self.stop_detection = False # detach pad probe when done
+        # state for N-frame flow
+        self.current_frame = 1
+        self.state = "WAITING_FOR_TRIGGER"
+        self.stop_detection = False
+        self.motor_start_time = 0.0
+        self.time_offset = 0.0
 
 # --- Extract Raw Frame Utility ---
 def extract_raw_frame(buffer, width, height):
@@ -157,23 +158,6 @@ def _stop_and_quit_async(user_data: UserAppCallback):
         print(f"⚠️ main_loop.quit() error: {e}")
     return False  # run once
 
-# --- Schedule: 1s pause, then 1.5s nudge, then mark ready for Frame 2 ---
-def _schedule_pause_then_nudge(user_data: UserAppCallback):
-    def _start_nudge():
-        print(f"🔵 Large-parts: starting {NUDGE_SEC:.1f}s belt nudge…")
-        start_motor()
-        def _stop_and_ready():
-            stop_motor()
-            user_data.ready_frame2 = True
-            print("🟢 Ready for Frame 2 capture (no Y-threshold).")
-            return False
-        GLib.timeout_add(int(NUDGE_SEC * 1000), _stop_and_ready)
-        return False
-
-    print(f"⏸️ Pausing {PAUSE_SEC:.1f}s before nudge…")
-    GLib.timeout_add(int(PAUSE_SEC * 1000), _start_nudge)
-    return False
-
 # --- GStreamer Pad Callback ---
 def app_callback(pad, info, user_data: UserAppCallback):
     buf = info.get_buffer()
@@ -202,76 +186,97 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- Frame 1: stop when y1 > 0.40 ----------
-    if not user_data.have_frame1:
-        if not getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
+    # ---------- N-Chip Dynamic Trigger ----------
+    if user_data.state == "WAITING_FOR_TRIGGER":
+        elapsed = time.time() - user_data.motor_start_time
+        
+        trigger_stop = False
+        is_timeout = False
+
+        if user_data.current_frame == 1:
+            # First chip: wait indefinitely for a chip to cross y1 > 0.40
             trigger_stop = any(y1 > 0.40 for (_, y1, _, _) in crop_list)
-            if trigger_stop:
-                print(" Triggering motor stop and waiting 500ms for belt to settle...")
-                stop_motor()
-                user_data.stopping_for_frame1 = True
-                def _ready_f1():
-                    user_data.ready_frame1 = True
-                    return False
-                GLib.timeout_add(500, _ready_f1)
-            return Gst.PadProbeReturn.OK
-            
-        if getattr(user_data, 'stopping_for_frame1', False) and not getattr(user_data, 'ready_frame1', False):
-            # Still waiting for motor to stop and settle
-            return Gst.PadProbeReturn.OK
-            
-        if getattr(user_data, 'ready_frame1', False):
-            user_data.have_frame1 = True
-            user_data.ready_frame1 = False
-            user_data.stopping_for_frame1 = False
+        else:
+            # Other chips: Wait 0.5s before checking, then look for sweet spot
+            if elapsed > 0.5:
+                trigger_stop = any(0.38 < y1 < 0.45 for (_, y1, _, _) in crop_list)
+                if not trigger_stop and elapsed > 2.5:
+                    is_timeout = True
+        
+        if trigger_stop:
+            if user_data.current_frame > 1:
+                user_data.time_offset += elapsed
+            print(f"✅ [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
+            stop_motor()
+            user_data.state = "STOPPING_FOR_CAPTURE"
+            def _ready_capture():
+                user_data.state = "READY_TO_CAPTURE"
+                return False
+            GLib.timeout_add(500, _ready_capture)
 
-            with open(DETECTION_FILE, "w") as f:
-                f.write("FRAME=1\n")
-                if not crop_list:
-                    full_path = os.path.join(SAVE_FOLDER, "chip.png")
-                    cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                    f.write("No detections found\n\n")
-                else:
-                    for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
-                        print(f"Saving Crop {i} (Frame 1)")
-                        full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="")
-                        f.write(f"Cropped Photo Location: {full},{crop}\n")
-                        f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
+        elif is_timeout:
+            user_data.time_offset += elapsed
+            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 3.0s.")
+            stop_motor()
+            user_data.state = "STOPPING_FOR_TIMEOUT"
+            def _ready_timeout():
+                user_data.state = "READY_TO_TIMEOUT"
+                return False
+            GLib.timeout_add(500, _ready_timeout)
 
-            if os.path.exists(MULTI_CAPTURE_FLAG):
-                user_data.need_frame2  = True
-                user_data.ready_frame2 = False
-                GLib.idle_add(_schedule_pause_then_nudge, user_data)
-            else:
-                # Done after frame 1 (Large Parts OFF): close pipeline & quit
-                user_data.stop_detection = True
-                GLib.idle_add(_stop_and_quit_async, user_data)
-                return Gst.PadProbeReturn.REMOVE
-
-            return Gst.PadProbeReturn.OK
-
-        # Not triggered yet; keep streaming
         return Gst.PadProbeReturn.OK
 
-    # ---------- Frame 2: IGNORE Y, capture first buffer after pause+nudge ----------
-    if user_data.need_frame2 and user_data.ready_frame2 and not user_data.did_frame2:
-        user_data.did_frame2 = True
+    if user_data.state in ["STOPPING_FOR_CAPTURE", "STOPPING_FOR_TIMEOUT"]:
+        # Motor is spinning down, wait for timeout to change state
+        return Gst.PadProbeReturn.OK
 
-        with open(DETECTION_FILE, "a") as f:
-            f.write("FRAME=2\n")
-            if not crop_list:
-                print("ℹ️ Frame 2: No detections found; saving full frame only.")
-                full_path = os.path.join(SAVE_FOLDER, "chip2.png")
-                cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    if user_data.state == "READY_TO_CAPTURE":
+        mode = "w" if user_data.current_frame == 1 else "a"
+        with open(DETECTION_FILE, mode) as f:
+            f.write(f"FRAME={user_data.current_frame}\n")
+            if user_data.current_frame > 1:
+                f.write(f"Time_Offset: {user_data.time_offset:.2f}\n")
+            
+            saved_any = False
+            for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
+                if y1 < 0.35 or y1 > 0.55:
+                    print(f"ℹ️ Ignoring chip at y1={y1:.2f} (Outside capture zone)")
+                    continue
+                print(f"📸 Saving Crop {i} (Frame {user_data.current_frame})")
+                suffix = str(user_data.current_frame) if user_data.current_frame > 1 else ""
+                full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix=suffix)
+                f.write(f"Cropped Photo Location: {full},{crop}\n")
+                f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
+                saved_any = True
+            
+            if not saved_any:
+                print(f"⚠️ Frame {user_data.current_frame} saved, but no chips were in the sweet spot!")
                 f.write("No detections found\n\n")
-            else:
-                for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
-                    print(f"Saving Crop {i} (Frame 2)")
-                    full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix="2")
-                    f.write(f"Cropped Photo Location: {full},{crop}\n")
-                    f.write(f"Coordinates of the Detection Box: ({x1}, {y1}) -> ({x2}, {y2})\n\n")
 
-        # Finalize after frame 2: close pipeline & quit
+        user_data.current_frame += 1
+        user_data.state = "PAUSED_NUDGING"
+        
+        def _start_nudge():
+            print(f"▶️ Restarting motor for next chip...")
+            user_data.motor_start_time = time.time()
+            start_motor()
+            user_data.state = "WAITING_FOR_TRIGGER"
+            return False
+
+        print(f"⏸️ Pausing {PAUSE_SEC:.1f}s before moving belt...")
+        GLib.timeout_add(int(PAUSE_SEC * 1000), _start_nudge)
+        return Gst.PadProbeReturn.OK
+
+    if user_data.state == "READY_TO_TIMEOUT":
+        with open(DETECTION_FILE, "a") as f:
+            f.write(f"FRAME={user_data.current_frame}\n")
+            f.write(f"Time_Offset: {user_data.time_offset:.2f}\n")
+            print("ℹ️ Saving final full frame before shutdown.")
+            suffix = str(user_data.current_frame)
+            full_path = os.path.join(SAVE_FOLDER, f"chip{suffix}.png")
+            cv2.imwrite(full_path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            f.write("No detections found\n\n")
+
         user_data.stop_detection = True
         GLib.idle_add(_stop_and_quit_async, user_data)
         return Gst.PadProbeReturn.REMOVE
@@ -340,7 +345,7 @@ def stop_pipeline_safe(pipeline, main_loop):
 #         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
 #         print("🧹 Cleanup done.")
 
-
+#           hi man !!!!!!!!!!!!!!!!!!!!!!
 if __name__ == "__main__":
     activate_hailo_env()
     Gst.init(None)

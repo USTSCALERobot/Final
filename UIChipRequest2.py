@@ -5,6 +5,18 @@ import speech_recognition as sr
 from difflib import SequenceMatcher
 import os
 import re
+import threading
+import time
+import collections
+import numpy as np
+import librosa
+import sounddevice as sd
+
+try:
+    from tflite_runtime.interpreter import Interpreter
+except ImportError:
+    import tensorflow as tf
+    Interpreter = tf.lite.Interpreter
 
 # Paths
 SAVE_FOLDER    = "/home/scalepi/Desktop/savephototest"
@@ -12,7 +24,6 @@ VOSK_FILE      = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/vosk_v
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 SPEECH_FILE    = os.path.join(SAVE_FOLDER, "speech_input.txt")
 REQUEST_FILE   = os.path.join(SAVE_FOLDER, "chip_request_input.txt")
-FLAG_PATH      = os.path.join(SAVE_FOLDER, "multi_capture.flag")
 
 # Known parts and circuits for STT matching
 KNOWN_PARTS = [
@@ -22,6 +33,91 @@ KNOWN_PARTS = [
     "CIRCUIT1", "CIRCUIT2"
 ]
 
+# Wake Word Parameters
+FS = 16000
+DURATION = 2.0
+N_MFCC = 32
+HOP_LENGTH = 512
+N_FFT = 2048
+WAKE_MODEL_PATH = "/home/scalepi/Desktop/tflite_model/hey_dan_model.tflite" # Change this to the path on the Pi
+STOP_LISTENING = False
+
+def process_audio(audio_data):
+    audio_data = audio_data.flatten()
+    target_len = int(FS * DURATION)
+    if len(audio_data) < target_len:
+        audio_data = np.pad(audio_data, (0, target_len - len(audio_data)), 'constant')
+    else:
+        audio_data = audio_data[:target_len]
+        
+    mfccs = librosa.feature.mfcc(
+        y=audio_data, sr=FS, n_mfcc=N_MFCC, n_fft=N_FFT, hop_length=HOP_LENGTH
+    )
+    if mfccs.shape[1] < 63:
+        mfccs = np.pad(mfccs, ((0, 0), (0, 63 - mfccs.shape[1])), 'constant')
+    else:
+        mfccs = mfccs[:, :63]
+    return mfccs.reshape(1, N_MFCC, 63, 1).astype(np.float32)
+
+def wake_word_listener(gui_root):
+    print("Loading TFLite Wake Word model...")
+    try:
+        interpreter = Interpreter(model_path=WAKE_MODEL_PATH)
+        interpreter.allocate_tensors()
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+    except Exception as e:
+        print(f"Error loading TFLite model (Path: {WAKE_MODEL_PATH}): {e}")
+        return
+
+    buffer_len = int(FS * DURATION)
+    audio_buffer = collections.deque(maxlen=buffer_len)
+    audio_buffer.extend(np.zeros(buffer_len))
+    
+    def audio_callback(indata, frames, time_info, status):
+        if status:
+            pass # Ignore status spam
+        audio_buffer.extend(indata[:, 0])
+
+    print("Warming up audio processing...")
+    _ = process_audio(np.zeros(buffer_len))
+    
+    print("Listening for wake word...")
+    with sd.InputStream(samplerate=FS, channels=1, dtype='float32', callback=audio_callback):
+        while True:
+            global STOP_LISTENING
+            if STOP_LISTENING:
+                print("GUI closed. Stopping wake word listener cleanly...")
+                break
+                
+            try:
+                current_audio = np.array(audio_buffer)
+                features = process_audio(current_audio)
+                
+                interpreter.set_tensor(input_details[0]['index'], features)
+                interpreter.invoke()
+                prediction = interpreter.get_tensor(output_details[0]['index'])
+                
+                prob_wake_word = prediction[0][1]
+                
+                if prob_wake_word >= 0.70:
+                    print(f"\n>>> WAKE WORD DETECTED <<< (Confidence: {prob_wake_word:.2f})")
+                    # Trigger the GUI event
+                    try:
+                        gui_root.event_generate("<<WakeWordDetected>>", when="tail")
+                    except Exception:
+                        pass
+                    break # Exit loop, release mic!
+                else:
+                    # Provide visual proof that the thread is looping ~10x a second
+                    print(f"\r... (Listening | Confidence: {prob_wake_word:.2f})    ", end="", flush=True)
+                
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"Listener error: {e}")
+                break
+    print("Wake word thread dying, mic released.")
+
 r = sr.Recognizer()
 
 def _write_request(kind: str, value: str):
@@ -30,11 +126,16 @@ def _write_request(kind: str, value: str):
         f.write(f"Requested {kind}: {value}")
     print(f"Saved -> Requested {kind}: {value}")
 
+def close_gui():
+    global STOP_LISTENING
+    STOP_LISTENING = True
+    chip_request.destroy()
+
 def save_input():
     txt = chip_id.get().strip()
     if txt:
         _write_request("Part", txt)
-        chip_request.destroy()
+        close_gui()
     else:
         print("Chip Request Failed (empty)")
 
@@ -42,46 +143,21 @@ def save_circuit_input():
     txt = chip_id.get().strip()
     if txt:
         _write_request("Circuit", txt)
-        chip_request.destroy()
+        close_gui()
     else:
         print("Circuit Request Failed (empty)")
 
 def save_no_input():
     _write_request("Part", "None")
-    chip_request.destroy()
+    close_gui()
 
-# def speech_to_text():
-#     print("You have unlimited time to say chips, say next after each full chip and stop to end")
-#     os.makedirs(SAVE_FOLDER, exist_ok=True)
-#     #subprocess.run("arecord -D plughw:2,0 -d 6 UIRequestRecord.wav", shell=True)
-#     #with sr.AudioFile('UIRequestRecord.wav') as source:
-#         #audio = r.record(source)
-#     result = subprocess.run(["python3", VOSK_FILE], capture_output=True, text=True)
-#     text = result.stdout.strip()#r.recognize_google(audio)
-#     print(f"You said: ", text)
-
-#     # words = text.replace(",", " ").replace(" and ", " ").split()
-#     # matched = []
-#     # printed = set()
-#     # for w in words:
-#     #     best, best_score = None, 0.0
-#     #     for p in KNOWN_PARTS:
-#     #         s = SequenceMatcher(None, w.upper(), p.upper()).ratio()
-#     #         if s > best_score:
-#     #             best, best_score = p, s
-#     #     if best and best_score >= 0.50 and best not in matched:
-#     #         matched.append(best)
-#     #         if best not in printed:
-#     #             print(f"Matched: '{best}' (score: {best_score:.2f})")
-#     #             printed.add(best)
-
-#     # final_text = ", ".join(matched)
-#     # print(f"\n Matched: {final_text}\n")
-#     chip_id.delete(0, tk.END)
-#     chip_id.insert(0, string=text)
 
 def speech_to_text():
+ 
     print("🎙️ Running Vosk voice recognition...")
+
+    if 'listener_thread' in globals() and listener_thread.is_alive():
+        listener_thread.join(timeout=1)
     try:
         # Run the Vosk script and wait for it to finish
         subprocess.run(["python3", VOSK_FILE], check=True)
@@ -122,37 +198,41 @@ def load_previous_request():
     except Exception as e:
         print(f"Error loading previous request: {e}")
 
-def enable_large_selection():
-    os.makedirs(SAVE_FOLDER, exist_ok=True)
-    with open(FLAG_PATH, "w") as f:
-        f.write("1\n")
-    print("🔵 Large-part selection ENABLED")
 
-def disable_large_selection():
-    try:
-        os.remove(FLAG_PATH)
-        print("⚪ Large-part selection DISABLED")
-    except FileNotFoundError:
-        print("⚪ Large-part selection already disabled")
+def on_wakeword_detected(event):
+    dan_listen.config(text="Hello, waiting for command", background="Green")
+    dan_listen.update()
+
+    print("GUI received wake-word signal. Launching Vosk...")
+   #
+    speech_to_text()
 
 # --- GUI ---
 if __name__ == "__main__":
     chip_request = tk.Tk()
     chip_request.title("GUI Chip Request")
     chip_request.minsize(360, 240)
-
+    
+    chip_request.protocol("WM_DELETE_WINDOW", close_gui)
+    chip_request.bind("<<WakeWordDetected>>", on_wakeword_detected)
+    
+    # Start the listening thread automatically
+    listener_thread = threading.Thread(target=wake_word_listener, args=(chip_request,), daemon=True)
+    listener_thread.start()
+    
     tk.Label(text="Chip / Circuit Input").pack(pady=(8,2))
     chip_id = tk.Entry()
     chip_id.pack(fill="x", padx=10)
-
+    dan_listen = tk.Label(text="Listening for Hey Dan",background="red")
+    dan_listen.pack(pady= 3)
     tk.Button(chip_request, text="Speech to Text (Vosk)",   command=speech_to_text).pack(pady=3)
     tk.Button(chip_request, text="Submit Part Request",   command=save_input).pack(pady=3)
     tk.Button(chip_request, text="Submit Circuit Request",command=save_circuit_input).pack(pady=3)
     tk.Button(chip_request, text="Submit No Request",     command=save_no_input).pack(pady=3)
     tk.Button(chip_request, text="Load Previous Request", command=load_previous_request).pack(pady=3)
 
-    tk.Label(text="Large-Part (two-frame) Mode").pack(pady=(10,2))
-    tk.Button(chip_request, text="Large Part: ON",  command=enable_large_selection).pack(side="left", padx=10)
-    tk.Button(chip_request, text="Large Part: OFF", command=disable_large_selection).pack(side="left")
+
 
     chip_request.mainloop()
+    if 'listener_thread' in globals() and listener_thread.is_alive():
+        listener_thread.join(timeout=1)

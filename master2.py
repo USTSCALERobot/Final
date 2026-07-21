@@ -136,5 +136,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n🛑 Master process interrupted by user. Exiting.")
+        print("\n Master process interrupted by user. Exiting.")
         sys.exit(0)

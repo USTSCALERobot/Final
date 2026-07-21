@@ -37,7 +37,7 @@ def transform_coordinates(x1, y1):
     y_left = 10
     x2 = x1 * (x_far - x_close) + x_close 
     # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
+    y2 = y1 * (y_right - y_left) + y_left - 5.1        # the extra .15 is an additional shift from guess and check
     return x2, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
@@ -151,7 +151,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 21.05]       
+    pickup_pos = [x, y, 21.0]      # 21 is the height of the pickup position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 

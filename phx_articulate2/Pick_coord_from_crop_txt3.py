@@ -21,7 +21,7 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
-# hi this is diferent
+
 # def transform_coordinates(x1, y1):
 
 #     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
@@ -151,7 +151,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickup position  
+    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickuintermedp position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -240,7 +240,7 @@ def drop_off(x, y, z, desired_angle):
     
     # Move vertically UP to avoid nudging chip after dropoff (relative to z)
     go_to_pos([x, y, z + 4.25], theta0_4)
-    print("Moving to fixed position (10, 0, 25)...")
+    print("Moving to fixed position (10, 0, 25)...")intermed
     go_to_pos([10, 0, 25], 0)
 
     print("Returning to rest position...")
@@ -253,7 +253,7 @@ def drop_off(x, y, z, desired_angle):
 #     #while(1):
 #     led_line.set_value(1)
 #     print("ON")
-#     time.sleep(4.25)
+#     time.sleep(4.25)intermed
 #     led_line.set_value(0)
 #     print("OFF")
 #     time.sleep(1)  # Sleep for one second

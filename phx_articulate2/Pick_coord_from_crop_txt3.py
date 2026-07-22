@@ -35,10 +35,39 @@ def transform_coordinates(x1, y1):
     x_far = 22
     y_right = -10
     y_left = 10
+    x_ref = 18.5
+    y_ref = -5.18
+
+    
     x2 = x1 * (x_far - x_close) + x_close 
     # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
     y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
-    return x2, y2
+
+    dif_x = x2 - x_ref  # Difference from center point
+    dif_y = y2 - y_ref  # Difference from center point
+    # Coeffs for X-direction micro-adjustments ...forward and backward 
+    k1_x = 0.03
+    k2_x = 0.25
+    # Coeffs for Y-direction micro-adjustments ...side to side 
+    k1_y = 0.025
+    k2_y = 0.027
+    # 2nd degree offest adjustment equation 
+    x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)
+    y_mAdjust = dif_y + (dif_y * k1_y) + (dif_y * abs(dif_y) * k2_y)
+
+    x_out = x_ref + x_mAdjust
+    y_out = y_ref + y_mAdjust
+
+    if y_out > 7.5:
+        y_out = 7.5
+    if y_out < y_right:
+        y_out = y_right
+    if x_out > x_far: 
+        x_out = x_far
+    if x_out < x_close: 
+        x_out = x_close
+
+    return x_out, y_out
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
@@ -365,7 +394,7 @@ def main():
 
         # --- Drop-off ---
         if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 25, -90    #raised to height of 25 for now this is supposed to be droppoff location 
+            dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 17 for now this is supposed to be droppoff location 
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)
         #    none_belt_run()        #commented out so we can do multiple chips

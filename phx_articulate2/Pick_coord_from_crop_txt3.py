@@ -36,7 +36,7 @@ def transform_coordinates(x1, y1):
     y_right = -10
     y_left = 10
     x_ref = 18.5
-    y_ref = -5.18
+
 
     
     x2 = x1 * (x_far - x_close) + x_close 
@@ -44,30 +44,25 @@ def transform_coordinates(x1, y1):
     y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
 
     dif_x = x2 - x_ref  # Difference from center point
-    dif_y = y2 - y_ref  # Difference from center point
+
     # Coeffs for X-direction micro-adjustments ...forward and backward 
     k1_x = 0.03
     k2_x = 0.25
-    # Coeffs for Y-direction micro-adjustments ...side to side 
-    k1_y = 0.025
-    k2_y = 0.027
+
     # 2nd degree offest adjustment equation 
     x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)
-    y_mAdjust = dif_y + (dif_y * k1_y) + (dif_y * abs(dif_y) * k2_y)
+    
 
     x_out = x_ref + x_mAdjust
-    y_out = y_ref + y_mAdjust
+    
 
-    if y_out > 7.5:
-        y_out = 7.5
-    if y_out < y_right:
-        y_out = y_right
+    # saftey net ceiling and floor for the adjustments in the x-Direction
     if x_out > x_far: 
         x_out = x_far
     if x_out < x_close: 
         x_out = x_close
 
-    return x_out, y_out
+    return x_out, y2
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created

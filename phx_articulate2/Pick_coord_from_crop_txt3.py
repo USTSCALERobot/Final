@@ -371,9 +371,17 @@ def main():
         tx, ty = transform_coordinates(x_raw, y_raw)
 
         # Apply physical offset for trailing chips based on dynamic time delta
-        # Belt speed is ~18.5 cm / 8.25 s = 2.242 cm/s
+        # Using the piecewise kinematic model for belt movement:
+        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780 # ~5.8754 cm
+        if time_offset <= 0:
+            y_offset_cm = 0.0
+        elif time_offset <= 2.61:
+            y_offset_cm = 0.0274 * (time_offset**2) + 2.0731 * time_offset + 0.2780
+        else:
+            y_offset_cm = dist_at_2_61 + 2.2163 * (time_offset - 2.61)
+            
         # Since y-axis is parallel to the belt and upstream is +y, we add the offset
-        y_offset_cm = time_offset * 2.242
+        # y_offset_cm = time_offset * 2.242
         ty += y_offset_cm
 
         if abs(angle) < 1.0:

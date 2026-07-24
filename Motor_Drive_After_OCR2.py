@@ -2,7 +2,7 @@ import gpiod
 import time
 import os
 import re
-
+import math
 LED_PIN = 24
 SAVE_FOLDER = "/home/scalepi/Desktop/savephototest"
 DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
@@ -27,14 +27,13 @@ def get_max_time_offset():
 
 def main():
     max_offset = get_max_time_offset()
-    # Increased from 8.25 to 12.71 to run the belt an additional ~4.46 seconds, 
-    # moving the chips ~10cm further down the belt to clear the camera mount.
-    base_time = 10.48
+ 
     
     # Base distance we want the belt to travel (calculated from base_time = 10.48s)
     # Using linear model for base distance since 10.48s > 2.61s:
     # Distance = 2.2163 * 10.48 + 0.0909 = 23.3177 cm
-    base_distance = 23.3177
+    offset_distance = 3.0                       # allows for you to move the first chip further down the belt
+    base_distance = 18.75 + offset_distance     # this is our center distance meaning it takes 18.75cm to reach the center of the target    
     
     # Distance traveled at the end of the acceleration phase (t=2.61s)
     dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780 # ~5.8754 cm
@@ -57,7 +56,7 @@ def main():
         run_time = 0.0
     elif remaining_distance <= dist_at_2_61:
         # Reverse Quadratic: 0.0274*t^2 + 2.0731*t + (0.2780 - remaining_distance) = 0
-        import math
+
         a = 0.0274
         b = 2.0731
         c = 0.2780 - remaining_distance
@@ -76,7 +75,7 @@ def main():
     #while(1):
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
-    print(f"Running motor for {run_time:.2f}s (Base: {base_time}s - Max Offset: {max_offset:.2f}s)")
+    print(f"Running motor for {run_time:.2f}s (Target: {base_distance}cm, OCR Offset: {max_offset:.2f}s)")
     time.sleep(run_time)  # new time differential for multiple chips 
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")

@@ -1,3 +1,13 @@
+########################################################################
+# Document: Pick_coord_from_crop_txt3.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
 import kinematics as kin
 import numpy as np
 import phx
@@ -22,27 +32,22 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
-# hi this is diferent
-# def transform_coordinates(x1, y1):
-
 #     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
-#     x2 = x1 * (22 - 15) + 14.25
-#     y2 = y1 * (-10 - (10)) + (10.5)
-#     # x2 = x1 * 7  + 15
-#     # y2 = y1 * (-10 - (10)) + (10)
-#     return x2, y2
 def transform_coordinates(x1, y1):
     x_close = 15
     x_far = 22
     y_right = -10
     y_left = 10
-    x_ref = 18.5
+    x_ref = 18.5        # distance traveled to get exact center of the chip 
     y_ref = 0
-
     
     x2 = x1 * (x_far - x_close) + x_close 
     # The -3 is the chips moving an additional 3cm further down the belt 
+    # TODO: figure out how to pass the offset value from Motor_Drive_After_OCR2.py
+    # This performs the linear transform for the coordinate system from the camera pixels 
     y2 = y1 * (y_right - y_left) + y_left + 0.075 - 3     # the extra .075 is an additional shift from observed differences in the pickup 
+
+    # Below this are specific calibrations and micro-adjustments for better alignment
 
     dif_x = x2 - x_ref  # Difference from center point
     dif_y = y2 - y_ref  # Difference from center point y-direction 
@@ -53,7 +58,6 @@ def transform_coordinates(x1, y1):
     # Coeffs for Y-direction micro-adjustments ...side to side sway 
     k1_y = 0
     k2_y = 0 
-
 
     # 2nd degree offest adjustment equation 
     x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)
@@ -181,7 +185,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickup position  
+    pickup_pos = [x, y, 20.75]      # 3rd value is the height of the pickup position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -199,7 +203,7 @@ def pick_up(x, y, additional_angle=0):
 
     time.sleep(1.5) # freeze to check positioning
     print(str(intermediate_pos), str(theta0_4))
-# adjust intermediate_pos so that arm is hanging straight down at z=23
+    # adjust intermediate_pos so that arm is hanging straight down at z=23
     phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)
@@ -277,17 +281,6 @@ def drop_off(x, y, z, desired_angle):
     phx.rest_position()
 
 
-
-
-# def none_belt_run():
-#     #while(1):
-#     led_line.set_value(1)
-#     print("ON")
-#     time.sleep(4.25)
-#     led_line.set_value(0)
-#     print("OFF")
-#     time.sleep(1)  # Sleep for one second
-#     led_line.release()
 def none_belt_run():
     try:
         led_request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
@@ -308,12 +301,11 @@ def none_belt_run():
 # --- Main Loop ---
 def main():
     filename = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
-   # circuits = load_circuits(CIRCUITS_FILE)
     circuits = {}
     if os.path.exists(CIRCUITS_FILE):
         circuits = load_circuits(CIRCUITS_FILE)
     else:
-        print(f"⚠️ Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
+        print(f"Warning: Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
     
     try:
         with open(filename, 'r') as f:
@@ -387,7 +379,6 @@ def main():
             y_offset_cm = dist_at_2_61 + 2.2163 * (time_offset - 2.61)
             
         # Since y-axis is parallel to the belt and upstream is +y, we add the offset
-        # y_offset_cm = time_offset * 2.242
         ty += y_offset_cm
 
         if abs(angle) < 1.0:
@@ -406,7 +397,6 @@ def main():
             dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 17 for now this is supposed to be droppoff location 
             print("Dropping off to None Bin")
             drop_off(dx, dy, dz, desired_angle)
-        #    none_belt_run()        #commented out so we can do multiple chips
         else:
             dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
             print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
@@ -416,8 +406,6 @@ def main():
 
     print("All operations complete. Resting.")
  
-
-
 
 if __name__ == "__main__":
     phx.turn_on()

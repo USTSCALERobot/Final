@@ -33,21 +33,6 @@ def activate_env():
     print("✅ Environment activated successfully.")
 
 # --- Read Detection File ---
-# def read_detection_file():
-#     if not os.path.exists(DETECTION_FILE):
-#         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
-#     with open(DETECTION_FILE, "r") as f:
-#         lines = f.readlines()
-#     if len(lines) < 2:
-#         sys.exit("❌ Detection file format error. Expected at least two lines.")
-#     cropped_line = lines[0].strip()
-#     if not cropped_line.startswith("Cropped Photo Location:"):
-#         sys.exit("❌ Unexpected format in detection file.")
-#     parts = cropped_line.split(",", 1)
-#     if len(parts) < 2:
-#         sys.exit("❌ Couldn't parse cropped image path.")
-#     return parts[1].strip()
-
 def read_detection_file():
     if not os.path.exists(DETECTION_FILE):
         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")

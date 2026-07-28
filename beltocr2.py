@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+########################################################################
+# Document: Motor_Drive_After_OCR2.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
+#!/usr/bin/env python3  #needs to be on line 1 for shebang to work 
 import os
 import cv2
 import numpy as np
@@ -110,11 +120,6 @@ def load_circuit_parts(circuit_name):
     parts = []
     if m:
         block = m.group(1)
-        # entries = re.findall(r'"([^"]+)"', block)
-        # for entry in entries:
-        #     pm = re.search(r'\d+\.\s*(.+?)\s*\(', entry)
-        #     if pm:
-        #         parts.append(pm.group(1).strip().upper())
         entries = re.findall(r'\d+\.\s*([^()]+)\(',block)
         for part_name in entries:
             parts.append(part_name.strip().upper())
@@ -228,7 +233,7 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=
         f.write(f"Match parts for mapping: {match_disp}\n")
         f.write("-----------------------------------\n\n")
 
-    print(f"✅ Detection file updated for Frame {frame_no}, crop {crop_index}.")
+    print(f" Detection file updated for Frame {frame_no}, crop {crop_index}.")
 
 # ===== Main now processes by FRAME (or inferred frames) =====
 def main():
@@ -237,7 +242,7 @@ def main():
     # Parse the detection file (supports FRAME= headers or legacy format)
     frames = parse_detection_frames(DETECTION_FILE)
     if not frames:
-        print("⚠️ No crops found in detection file; nothing to OCR.")
+        print("Warning: No crops found in detection file; nothing to OCR.")
         return
 
     # CLEAR THE FILE! We only want to save the final OCR results, 

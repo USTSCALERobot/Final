@@ -1,3 +1,13 @@
+########################################################################
+# Document: Motor_Drive_After_OCR2.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
 import gpiod
 import time
 import os
@@ -29,16 +39,16 @@ def main():
     max_offset = get_max_time_offset()
  
     
-    # Base distance we want the belt to travel (calculated from base_time = 10.48s)
-    # Using linear model for base distance since 10.48s > 2.61s:
-    # Distance = 2.2163 * 10.48 + 0.0909 = 23.3177 cm
+    # Base distance we want the belt to travel 
+    # Using linear model for base distance for anything > 2.61s:
+    # Distance = 2.2163 * t + 0.0909 
     offset_distance = 3.0                       # allows for you to move the first chip further down the belt
     base_distance = 18.75 + offset_distance     # this is our center distance meaning it takes 18.75cm to reach the center of the target    
     
     # Distance traveled at the end of the acceleration phase (t=2.61s)
     dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780 # ~5.8754 cm
     
-    # Calculate how far the belt has ALREADY traveled during the OCR phase (max_offset)
+    # Calculate how far the belt has already traveled during the OCR phase (max_offset)
     if max_offset <= 0:
         distance_already_traveled = 0.0
     elif max_offset <= 2.61:
@@ -51,7 +61,7 @@ def main():
     # Calculate the remaining distance the belt needs to travel
     remaining_distance = max(0.0, base_distance - distance_already_traveled)
     
-    # Calculate how much TIME it takes to travel that remaining distance
+    # Calculate how much time it takes to travel that remaining distance
     if remaining_distance <= 0:
         run_time = 0.0
     elif remaining_distance <= dist_at_2_61:
@@ -72,7 +82,7 @@ def main():
         # Time for acceleration phase (2.61s) + time for remaining distance at steady velocity
         run_time = 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
     
-    #while(1):
+    
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
     print(f"Running motor for {run_time:.2f}s (Target: {base_distance}cm, OCR Offset: {max_offset:.2f}s)")

@@ -42,7 +42,7 @@ def main():
     # Base distance we want the belt to travel 
     # Using linear model for base distance for anything > 2.61s:
     # Distance = 2.2163 * t + 0.0909 
-    offset_distance = 3.0                       # allows for you to move the first chip further down the belt
+    offset_distance = 4.0                       # allows for you to move the first chip further down the belt
     base_distance = 18.75 + offset_distance     # this is our center distance meaning it takes 18.75cm to reach the center of the target    
     
     # Distance traveled at the end of the acceleration phase (t=2.61s)

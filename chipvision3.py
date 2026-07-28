@@ -1,5 +1,5 @@
 ########################################################################
-# Document: Motor_Drive_After_OCR2.py
+# Document: chipvision3.py
 # Project: SCALE Automated Vision System
 # Institution: University of St. Thomas
 # Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
@@ -233,7 +233,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
             # Other chips: Wait 0.5s before checking, then look for sweet spot
             # This needs to be a window so that we dont capture the same chip twice. 
             if elapsed > 0.5:
-                trigger_stop = any(0.38 < y1 < 0.42 for (_, y1, _, _) in crop_list)
+                trigger_stop = any(0.39 < y1 < 0.41 for (_, y1, _, _) in crop_list)
                 if not trigger_stop and elapsed > 2.5:
                     is_timeout = True
         #   Here we have found a chip in the sweet spot, so we stop the motor and start the capture process
@@ -257,7 +257,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
             accumulated_dist = time_to_distance(user_data.time_offset)
             total_dist = accumulated_dist + current_dist
             user_data.time_offset = distance_to_time(total_dist)
-            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 3.0s.")
+            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 2.5s.")
             stop_motor()
             user_data.state = "STOPPING_FOR_TIMEOUT"
             def _ready_timeout():

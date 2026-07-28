@@ -45,7 +45,7 @@ def transform_coordinates(x1, y1):
     # The -3 is the chips moving an additional 3cm further down the belt 
     # TODO: figure out how to pass the offset value from Motor_Drive_After_OCR2.py
     # This performs the linear transform for the coordinate system from the camera pixels 
-    y2 = y1 * (y_right - y_left) + y_left + 0.075 - 3     # the extra .075 is an additional shift from observed differences in the pickup 
+    y2 = y1 * (y_right - y_left) + y_left - 4     # the extra .075 is an additional shift from observed differences in the pickup 
 
     # Below this are specific calibrations and micro-adjustments for better alignment
 
@@ -54,10 +54,10 @@ def transform_coordinates(x1, y1):
 
     # Coeffs for X-direction micro-adjustments ...forward and backward 
     k1_x = 0.03
-    k2_x = 0.25
+    k2_x = 0.3
     # Coeffs for Y-direction micro-adjustments ...side to side sway 
-    k1_y = 0
-    k2_y = 0 
+    k1_y = 0.00
+    k2_y = 0.00 
 
     # 2nd degree offest adjustment equation 
     x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)
@@ -77,8 +77,8 @@ def transform_coordinates(x1, y1):
     # try to pickup chips that are not on the belt
     if y_out < -11:
         y_out = -11
-    if y_out > 7:
-        y_out = 7
+    if y_out > 6:
+        y_out = 6
 
     return x_out, y_out
 

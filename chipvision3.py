@@ -18,6 +18,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 import numpy as np
+import math
 import cv2
 import hailo
 from hailo_rpi_common import get_caps_from_pad, app_callback_class
@@ -106,6 +107,28 @@ def activate_hailo_env():
 
 # --- Change Working Directory ---
 os.chdir("/home/scalepi/hailo-rpi5-examples")
+
+# --- Kinematic Helpers ---
+def time_to_distance(t):
+    if t <= 0: return 0.0
+    if t <= 2.61:
+        return 0.0274 * (t**2) + 2.0731 * t + 0.2780
+    else:
+        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+        return dist_at_2_61 + 2.2163 * (t - 2.61)
+
+def distance_to_time(d):
+    if d <= 0: return 0.0
+    dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+    if d <= dist_at_2_61:
+        a = 0.0274
+        b = 2.0731
+        c = 0.2780 - d
+        discriminant = b**2 - 4*a*c
+        if discriminant < 0: return 0.0
+        return (-b + math.sqrt(discriminant)) / (2*a)
+    else:
+        return 2.61 + (d - dist_at_2_61) / 2.2163
 
 # --- Callback Class for Detection ---
 class UserAppCallback(app_callback_class):
@@ -216,7 +239,11 @@ def app_callback(pad, info, user_data: UserAppCallback):
         #   Here we have found a chip in the sweet spot, so we stop the motor and start the capture process
         if trigger_stop:
             if user_data.current_frame > 1:
-                user_data.time_offset += elapsed    # logging belt runtime after fist chip found. NEEEDS WORK TO FIX!!!!!!!
+                # Convert accumulated time to distance, add new distance, convert back to equivalent time
+                current_dist = time_to_distance(elapsed)
+                accumulated_dist = time_to_distance(user_data.time_offset)
+                total_dist = accumulated_dist + current_dist
+                user_data.time_offset = distance_to_time(total_dist)
             print(f"✅ [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
             stop_motor()
             user_data.state = "STOPPING_FOR_CAPTURE"
@@ -226,7 +253,10 @@ def app_callback(pad, info, user_data: UserAppCallback):
             GLib.timeout_add(500, _ready_capture)
 
         elif is_timeout:
-            user_data.time_offset += elapsed
+            current_dist = time_to_distance(elapsed)
+            accumulated_dist = time_to_distance(user_data.time_offset)
+            total_dist = accumulated_dist + current_dist
+            user_data.time_offset = distance_to_time(total_dist)
             print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 3.0s.")
             stop_motor()
             user_data.state = "STOPPING_FOR_TIMEOUT"

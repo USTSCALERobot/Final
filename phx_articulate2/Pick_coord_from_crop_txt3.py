@@ -16,6 +16,11 @@ import math
 import re
 import gpiod
 import os
+from esp_chip_alignment import ChipShiftESP, correction_cm
+
+# ESP32-CAM serial connection. Override on the Pi if needed with, for example:
+# export ESP_CHIP_PORT=/dev/ttyACM0
+ESP_CHIP_PORT = os.environ.get("ESP_CHIP_PORT", "/dev/ttyUSB0")
 
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
@@ -195,13 +200,10 @@ def pick_up(x, y, additional_angle=0):
     gripper_position = angle_to_motor_steps(adjusted_angle)
     set_gripper(gripper_position)
 
-# check arm position here for esp capture
-    
     # print(f"Moving to the position (X, Y, 23) with theta_4 set.")
     intermediate_pos = [x, y, 23]
     go_to_pos(intermediate_pos, theta0_4)
 
-    time.sleep(1.5) # freeze to check positioning
     print(str(intermediate_pos), str(theta0_4))
     # adjust intermediate_pos so that arm is hanging straight down at z=23
     phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 
@@ -217,6 +219,27 @@ def pick_up(x, y, additional_angle=0):
     go_to_pos(intermediate_pos, theta0_4)
     fixed_position = [10, 0, 25]
     go_to_pos(fixed_position, 0)
+
+    """
+        NEW ESP CODE
+        The method ChipShiftESP is used to measure the chip's offset after it has been picked up and is held in the gripper.
+        The median_shift method is called to get the median pixel shift of the chip's position.
+        Returns the placement_y_correction in centimeters, which is used to adjust the PCB placement during drop-off.
+    """
+    # Inspect the chip only after it is secured in the gripper and held at this
+    # repeatable pose. The returned correction is applied to the PCB placement,
+    # not to the belt pickup position.
+    with ChipShiftESP(ESP_CHIP_PORT) as esp:
+        shift_pixels = esp.median_shift(samples=3, timeout=8.0)
+
+    placement_y_correction = (
+        0.0 if abs(shift_pixels) <= 2.0 else correction_cm(shift_pixels)
+    )
+    print(
+        f"Picked-chip offset: {shift_pixels:+.1f} px; "
+        f"PCB Y correction: {placement_y_correction:+.3f} cm"
+    )
+    return placement_y_correction
 
 
 def calculate_drop_bearing(x, y):
@@ -389,7 +412,7 @@ def main():
             pickup_offset = angle
 
         print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
-        pick_up(tx, ty, pickup_offset)
+        placement_y_correction = pick_up(tx, ty, pickup_offset)
         phx.rest_position_closed()
 
         # --- Drop-off ---
@@ -399,6 +422,11 @@ def main():
             drop_off(dx, dy, dz, desired_angle)
         else:
             dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+            dy += placement_y_correction
+            print(
+                f"Applying ESP correction to PCB Y: "
+                f"{placement_y_correction:+.3f} cm"
+            )
             print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
             drop_off(dx, dy, dz, desired_angle)
         

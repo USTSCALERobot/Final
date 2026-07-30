@@ -20,6 +20,8 @@
 
 #include "esp_camera.h"
 #include <Preferences.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
 // AI-Thinker ESP32-CAM camera pins.
 #define PWDN_GPIO_NUM  32
@@ -48,6 +50,15 @@ constexpr int ROI_H = 190;
 constexpr float MIN_ROW_OCCUPANCY = 0.60f;
 constexpr int MIN_RUN_LENGTH = 18;
 constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
+constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 1000;
+
+// The Pi broadcasts this hotspot from its Wi-Fi adapter. The ESP joins it at
+// a fixed address, allowing the Pi to read http://10.42.0.20/shift.
+constexpr char WIFI_SSID[] = "espsignal";
+constexpr char WIFI_PASSWORD[] = "scaleuser123";
+const IPAddress ESP_ADDRESS(10, 42, 0, 20);
+const IPAddress PI_GATEWAY(10, 42, 0, 1);
+const IPAddress SUBNET_MASK(255, 255, 255, 0);
 
 // Reference produced by running this sketch's detection algorithm against
 // Images/standard_chip.png (320 x 240): longest occupied run = rows 133..189,
@@ -55,8 +66,12 @@ constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
 constexpr float STANDARD_CHIP_CENTER = 161.0f;
 
 Preferences preferences;
+WebServer server(80);
 float referenceCenter = STANDARD_CHIP_CENTER;
 float latestCenter = NAN;
+float latestConfidence = 0.0f;
+uint8_t latestThreshold = 0;
+bool latestDetectionValid = false;
 
 // Buffers hold only the ROI, not another full camera frame.
 uint8_t blurredROI[ROI_W * ROI_H];
@@ -244,6 +259,84 @@ bool initializeCamera() {
   return true;
 }
 
+void sendShiftResponse() {
+  if (!latestDetectionValid || isnan(latestCenter)) {
+    server.send(
+        503, "application/json",
+        "{\"ok\":false,\"error\":\"no chip detected\"}");
+    return;
+  }
+
+  const float shift = latestCenter - referenceCenter;
+  char response[192];
+  snprintf(
+      response, sizeof(response),
+      "{\"ok\":true,\"center_px\":%.1f,\"reference_px\":%.1f,"
+      "\"shift_px\":%.1f,\"confidence\":%.3f,\"threshold\":%u}",
+      latestCenter, referenceCenter, shift, latestConfidence,
+      latestThreshold);
+  server.send(200, "application/json", response);
+}
+
+void calibrateFromCurrentDetection() {
+  if (!latestDetectionValid || isnan(latestCenter)) {
+    server.send(
+        409, "application/json",
+        "{\"ok\":false,\"error\":\"no chip detected\"}");
+    return;
+  }
+  referenceCenter = latestCenter;
+  preferences.putFloat("refCenter", referenceCenter);
+  char response[96];
+  snprintf(
+      response, sizeof(response),
+      "{\"ok\":true,\"reference_px\":%.1f}", referenceCenter);
+  server.send(200, "application/json", response);
+}
+
+void restoreStandardReference() {
+  preferences.remove("refCenter");
+  referenceCenter = STANDARD_CHIP_CENTER;
+  server.send(
+      200, "application/json",
+      "{\"ok\":true,\"reference_px\":161.0}");
+}
+
+void initializeWirelessServer() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  if (!WiFi.config(ESP_ADDRESS, PI_GATEWAY, SUBNET_MASK, PI_GATEWAY)) {
+    Serial.println("ERROR: Failed to configure the ESP Wi-Fi address.");
+    return;
+  }
+
+  Serial.printf("Connecting to Pi Wi-Fi network: %s", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  const unsigned long connectionStart = millis();
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - connectionStart < 20000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(
+        "ERROR: Could not connect to the Pi hotspot; will keep retrying.");
+  }
+
+  server.on("/shift", HTTP_GET, sendShiftResponse);
+  server.on("/calibrate", HTTP_POST, calibrateFromCurrentDetection);
+  server.on("/reset-reference", HTTP_POST, restoreStandardReference);
+  server.on("/health", HTTP_GET, []() {
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+  server.begin();
+
+  Serial.printf("ESP Wi-Fi address: http://%s/shift\n",
+                ESP_ADDRESS.toString().c_str());
+}
+
 void handleSerialCommand() {
   while (Serial.available()) {
     const char command = Serial.read();
@@ -282,6 +375,8 @@ void setup() {
     }
   }
 
+  initializeWirelessServer();
+
   if (preferences.isKey("refCenter")) {
     Serial.printf("Loaded live reference center: %.1f px\n", referenceCenter);
   } else {
@@ -292,6 +387,15 @@ void setup() {
 }
 
 void loop() {
+  static unsigned long previousReconnectAttempt = 0;
+  if (WiFi.status() != WL_CONNECTED &&
+      millis() - previousReconnectAttempt >= WIFI_RECONNECT_INTERVAL_MS) {
+    previousReconnectAttempt = millis();
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
+
+  server.handleClient();
   handleSerialCommand();
 
   static unsigned long previousSample = 0;
@@ -318,9 +422,14 @@ void loop() {
 
   if (!found) {
     latestCenter = NAN;
+    latestDetectionValid = false;
     Serial.println("No chip found; adjust ROI or lighting.");
     return;
   }
+
+  latestConfidence = confidence;
+  latestThreshold = threshold;
+  latestDetectionValid = true;
 
   Serial.printf(
       "center=%.1f px, confidence=%.0f%%, threshold=%u",

@@ -1,14 +1,8 @@
-"""Align the Phoenix arm to a chip using the ESP32-CAM chip_shift sketch.
+"""Retrieve chip displacement wirelessly from the ESP32-CAM.
 
-The ESP prints lines such as:
-    center=91.0 px, confidence=97%, threshold=84, shift=6.5 px down
-
-This module reads those lines, converts the image shift to centimetres, and
-updates one coordinate of an arm pose.  It can be imported by the pickup
-script or run by itself.
-
-Install the serial dependency on the arm computer with:
-    python3 -m pip install pyserial
+The Pi broadcasts the ``SCALE-ARM`` hotspot, and the ESP joins it at the fixed
+address ``http://10.42.0.20``. This module uses only Python's standard library;
+pyserial is not needed.
 
 Before moving real hardware, measure PIXELS_PER_CM and confirm
 IMAGE_DOWN_TO_ARM_SIGN for the way the camera is mounted.
@@ -17,21 +11,12 @@ IMAGE_DOWN_TO_ARM_SIGN for the way the camera is mounted.
 from __future__ import annotations
 
 import argparse
-import re
+import json
 import statistics
 import time
-from dataclasses import dataclass
 from typing import Callable, Iterable, Optional, Sequence
-
-try:
-    import serial
-    from serial.tools import list_ports
-except ImportError:  # Keep parsing/tests usable without pyserial installed.
-    serial = None
-    list_ports = None
-
-
-BAUD_RATE = 115200
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 # Camera calibration. Replace this with a measured value:
 # move a target a known distance and divide the pixel change by that distance.
@@ -41,87 +26,44 @@ PIXELS_PER_CM = 36.5 # chip is ~2cm tall and is about 73 pixels tall in the ESP 
 # Change to -1 if a down-image correction moves the arm the wrong direction.
 IMAGE_DOWN_TO_ARM_SIGN = 1
 
-SHIFT_PATTERN = re.compile(
-    r"shift=(?P<pixels>\d+(?:\.\d+)?)\s*px\s*"
-    r"(?P<direction>up|down|centered)",
-    re.IGNORECASE,
-)
+class ChipShiftWiFi:
+    """HTTP client for the ESP32-CAM access point."""
 
+    def __init__(self, base_url: str = "http://10.42.0.20"):
+        self.base_url = base_url.rstrip("/")
 
-@dataclass(frozen=True)
-class ShiftReading:
-    """One signed shift measurement from the ESP."""
-
-    pixels: float  # down is positive; up is negative
-    raw_line: str
-
-
-def parse_shift(line: str) -> Optional[ShiftReading]:
-    """Parse one ESP status line, returning None if it has no shift."""
-    match = SHIFT_PATTERN.search(line)
-    if not match:
-        return None
-
-    magnitude = float(match.group("pixels"))
-    direction = match.group("direction").lower()
-    if direction == "up":
-        magnitude = -magnitude
-    elif direction == "centered":
-        magnitude = 0.0
-    return ShiftReading(magnitude, line.rstrip())
-
-
-def available_ports() -> list[str]:
-    """Return currently visible serial device names."""
-    if list_ports is None:
-        return []
-    return [port.device for port in list_ports.comports()]
-
-
-class ChipShiftESP:
-    """Small client for the serial protocol in ESP32/chip_shift.ino."""
-
-    def __init__(self, port: str, timeout: float = 1.0):
-        if serial is None:
-            raise RuntimeError("pyserial is required: python3 -m pip install pyserial")
-        self.connection = serial.Serial(port, BAUD_RATE, timeout=timeout)
-        # Opening an ESP32 serial port may reset it.
-        time.sleep(2.0)
-        self.connection.reset_input_buffer()
-
-    def close(self) -> None:
-        self.connection.close()
-
-    def __enter__(self) -> "ChipShiftESP":
+    def __enter__(self) -> "ChipShiftWiFi":
         return self
 
     def __exit__(self, *_exc_info: object) -> None:
-        self.close()
+        pass
 
-    def calibrate_reference(self) -> None:
-        """Tell the ESP to save the currently detected chip as its reference."""
-        self.connection.write(b"c\n")
-        self.connection.flush()
+    def _request(self, path: str, timeout: float, method: str = "GET") -> dict:
+        request = Request(self.base_url + path, method=method)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"ESP returned HTTP {error.code}: {detail}") from error
+        except URLError as error:
+            raise ConnectionError(
+                f"Cannot reach ESP at {self.base_url}; "
+                "make sure the SCALE-ARM hotspot is active and the ESP joined it"
+            ) from error
 
-    def erase_reference(self) -> None:
-        """Discard live calibration and restore the standard-image reference."""
-        self.connection.write(b"r\n")
-        self.connection.flush()
+    def read_shift(self, timeout: float = 5.0) -> float:
+        """Return one signed pixel shift (image down is positive)."""
+        payload = self._request("/shift", timeout)
+        if not payload.get("ok"):
+            raise RuntimeError(payload.get("error", "invalid ESP response"))
+        return float(payload["shift_px"])
 
-    def read_shift(self, timeout: float = 5.0) -> ShiftReading:
-        """Wait for the next valid shift measurement."""
-        deadline = time.monotonic() + timeout
-        last_line = ""
-        while time.monotonic() < deadline:
-            line = self.connection.readline().decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            last_line = line
-            reading = parse_shift(line)
-            if reading is not None:
-                return reading
-        detail = f" Last ESP message: {last_line!r}" if last_line else ""
-        raise TimeoutError(f"No shift measurement received in {timeout:.1f}s.{detail}")
+    def calibrate_reference(self, timeout: float = 5.0) -> None:
+        self._request("/calibrate", timeout, method="POST")
+
+    def restore_standard_reference(self, timeout: float = 5.0) -> None:
+        self._request("/reset-reference", timeout, method="POST")
 
     def median_shift(self, samples: int = 3, timeout: float = 8.0) -> float:
         """Return the median signed pixel shift, rejecting an occasional outlier."""
@@ -135,7 +77,9 @@ class ChipShiftESP:
                 raise TimeoutError(
                     f"Received only {len(readings)} of {samples} shift samples"
                 )
-            readings.append(self.read_shift(remaining).pixels)
+            readings.append(self.read_shift(remaining))
+            if len(readings) < samples:
+                time.sleep(0.55)
         return float(statistics.median(readings))
 
 
@@ -155,7 +99,7 @@ def correction_cm(
 
 
 def align_pose(
-    esp: ChipShiftESP,
+    esp: ChipShiftWiFi,
     pose: Sequence[float],
     move_to: Callable[[list[float]], object],
     *,
@@ -205,7 +149,7 @@ def align_pose(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", help="ESP serial port, e.g. /dev/ttyUSB0 or COM4")
+    parser.add_argument("--url", default="http://10.42.0.20")
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=8.0)
     parser.add_argument(
@@ -218,19 +162,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _build_parser().parse_args(argv)
-    port = args.port
-    if not port:
-        ports = available_ports()
-        if len(ports) != 1:
-            print("Specify --port. Visible ports:", ", ".join(ports) or "none")
-            return 2
-        port = ports[0]
-
-    with ChipShiftESP(port) as esp:
+    with ChipShiftWiFi(args.url) as esp:
         if args.calibrate:
             esp.calibrate_reference()
-            print("Calibration command sent; verify the ESP says reference saved.")
-            time.sleep(1.0)
+            print("ESP saved the currently visible chip as its reference.")
             return 0
         shift = esp.median_shift(samples=args.samples, timeout=args.timeout)
         delta = correction_cm(shift)

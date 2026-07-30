@@ -16,11 +16,10 @@ import math
 import re
 import gpiod
 import os
-from esp_chip_alignment import ChipShiftESP, correction_cm
+from esp_chip_alignment import ChipShiftWiFi, correction_cm
 
-# ESP32-CAM serial connection. Override on the Pi if needed with, for example:
-# export ESP_CHIP_PORT=/dev/ttyACM0
-ESP_CHIP_PORT = os.environ.get("ESP_CHIP_PORT", "/dev/ttyUSB0")
+# The ESP joins the Pi's SCALE-ARM hotspot at this fixed address.
+ESP_CHIP_URL = os.environ.get("ESP_CHIP_URL", "http://10.42.0.20")
 
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
@@ -222,14 +221,14 @@ def pick_up(x, y, additional_angle=0):
 
     """
         NEW ESP CODE
-        The method ChipShiftESP is used to measure the chip's offset after it has been picked up and is held in the gripper.
+        ChipShiftWiFi measures the chip's offset after it has been picked up and is held in the gripper.
         The median_shift method is called to get the median pixel shift of the chip's position.
         Returns the placement_y_correction in centimeters, which is used to adjust the PCB placement during drop-off.
     """
     # Inspect the chip only after it is secured in the gripper and held at this
     # repeatable pose. The returned correction is applied to the PCB placement,
     # not to the belt pickup position.
-    with ChipShiftESP(ESP_CHIP_PORT) as esp:
+    with ChipShiftWiFi(ESP_CHIP_URL) as esp:
         shift_pixels = esp.median_shift(samples=3, timeout=8.0)
 
     placement_y_correction = (

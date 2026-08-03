@@ -219,6 +219,9 @@ def pick_up(x, y, additional_angle=0):
     go_to_pos(intermediate_pos, theta0_4)
     fixed_position = [10, 0, 25]
     go_to_pos(fixed_position, 0)
+    # Allow the arm, chip, and ESP's 500 ms camera sample to settle before
+    # measuring. Otherwise the detector sees objects moving through its ROI.
+    time.sleep(1.5)
 
     """
         NEW ESP CODE

@@ -44,12 +44,18 @@
 
 // Same ROI used by chip_shift.py for a 320 x 240 image.
 constexpr int ROI_X = 130;
-constexpr int ROI_Y = 0;
+// The held chip is centered near row 161 at the arm's inspection pose. Limit
+// the search to that region so objects passing through during pickup are not
+// mistaken for the held chip.
+constexpr int ROI_Y = 110;
 constexpr int ROI_W = 40;
-constexpr int ROI_H = 190;
+constexpr int ROI_H = 100;
 
 constexpr float MIN_ROW_OCCUPANCY = 0.60f;
-constexpr int MIN_RUN_LENGTH = 18;
+// The standard chip's detected dark run is about 57 rows tall. Reject tiny
+// shadows and very tall pieces of the arm or background.
+constexpr int MIN_RUN_LENGTH = 35;
+constexpr int MAX_RUN_LENGTH = 90;
 constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 1000;
 
@@ -61,10 +67,9 @@ const IPAddress ESP_ADDRESS(10, 42, 0, 20);
 const IPAddress PI_GATEWAY(10, 42, 0, 1);
 const IPAddress SUBNET_MASK(255, 255, 255, 0);
 
-// The original standard image center was 161 px. The ESP32-S3 Sense camera is
-// vertically flipped below, so for a 240-row frame its matching coordinate is
-// (240 - 1) - 161 = 78 px.
-constexpr float STANDARD_CHIP_CENTER = 78.0f;
+// Reference measured from the standard held-chip image using the same camera
+// orientation: detected rows 133..189, centered at 161 px.
+constexpr float STANDARD_CHIP_CENTER = 161.0f;
 
 Preferences preferences;
 WebServer server(80);
@@ -184,6 +189,7 @@ bool detectChip(
 
   int bestStart = -1;
   int bestEnd = -1;
+  float bestReferenceDistance = INFINITY;
   int row = 0;
 
   while (row < ROI_H) {
@@ -196,10 +202,25 @@ bool detectChip(
     }
     const int end = row - 1;
 
-    if (start < ROI_H && end - start + 1 >= MIN_RUN_LENGTH &&
-        (bestStart < 0 || end - start > bestEnd - bestStart)) {
-      bestStart = start;
-      bestEnd = end;
+    if (start < ROI_H) {
+      const int runLength = end - start + 1;
+      // A run touching an ROI boundary is incomplete and is commonly the arm
+      // or image background rather than the whole chip.
+      const bool touchesBoundary = start == 0 || end == ROI_H - 1;
+      if (!touchesBoundary && runLength >= MIN_RUN_LENGTH &&
+          runLength <= MAX_RUN_LENGTH) {
+        const float candidateCenter =
+            ROI_Y + (start + end) / 2.0f;
+        const float referenceDistance =
+            fabsf(candidateCenter - referenceCenter);
+        if (bestStart < 0 || referenceDistance < bestReferenceDistance ||
+            (referenceDistance == bestReferenceDistance &&
+             runLength > bestEnd - bestStart + 1)) {
+          bestStart = start;
+          bestEnd = end;
+          bestReferenceDistance = referenceDistance;
+        }
+      }
     }
   }
 

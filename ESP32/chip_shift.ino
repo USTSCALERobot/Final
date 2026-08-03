@@ -56,7 +56,6 @@ constexpr float MIN_ROW_OCCUPANCY = 0.60f;
 // shadows and very tall pieces of the arm or background.
 constexpr int MIN_RUN_LENGTH = 35;
 constexpr int MAX_RUN_LENGTH = 90;
-constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 1000;
 
 // The Pi broadcasts this hotspot from its Wi-Fi adapter. The ESP joins it at
@@ -291,7 +290,46 @@ bool initializeCamera() {
   return true;
 }
 
+bool captureAndDetectChip() {
+  camera_fb_t *frame = esp_camera_fb_get();
+  if (frame == nullptr) {
+    latestCenter = NAN;
+    latestDetectionValid = false;
+    Serial.println("ERROR: Camera capture failed.");
+    return false;
+  }
+
+  float confidence = 0.0f;
+  uint8_t threshold = 0;
+  const bool found = frame->format == PIXFORMAT_GRAYSCALE &&
+      detectChip(
+          frame->buf, frame->width, frame->height,
+          latestCenter, confidence, threshold);
+
+  esp_camera_fb_return(frame);
+
+  if (!found) {
+    latestCenter = NAN;
+    latestDetectionValid = false;
+    Serial.println("No chip found in requested frame.");
+    return false;
+  }
+
+  latestConfidence = confidence;
+  latestThreshold = threshold;
+  latestDetectionValid = true;
+
+  const float shift = latestCenter - referenceCenter;
+  Serial.printf(
+      "center=%.1f px, confidence=%.0f%%, threshold=%u, shift=%.1f px\n",
+      latestCenter, confidence * 100.0f, threshold, shift);
+  return true;
+}
+
 void sendShiftResponse() {
+  // Capture on demand. The Pi requests this endpoint only after the arm has
+  // picked up the chip, reached its inspection pose, and settled.
+  captureAndDetectChip();
   if (!latestDetectionValid || isnan(latestCenter)) {
     server.send(
         503, "application/json",
@@ -311,6 +349,9 @@ void sendShiftResponse() {
 }
 
 void calibrateFromCurrentDetection() {
+  // Calibration is also an explicit measurement request, so use a fresh frame
+  // rather than requiring a preceding /shift call.
+  captureAndDetectChip();
   if (!latestDetectionValid || isnan(latestCenter)) {
     server.send(
         409, "application/json",
@@ -439,48 +480,5 @@ void loop() {
   server.handleClient();
   handleSerialCommand();
 
-  static unsigned long previousSample = 0;
-  if (millis() - previousSample < SAMPLE_INTERVAL_MS) {
-    delay(10);
-    return;
-  }
-  previousSample = millis();
-
-  camera_fb_t *frame = esp_camera_fb_get();
-  if (frame == nullptr) {
-    Serial.println("ERROR: Camera capture failed.");
-    return;
-  }
-
-  float confidence = 0.0f;
-  uint8_t threshold = 0;
-  const bool found = frame->format == PIXFORMAT_GRAYSCALE &&
-      detectChip(
-          frame->buf, frame->width, frame->height,
-          latestCenter, confidence, threshold);
-
-  esp_camera_fb_return(frame);
-
-  if (!found) {
-    latestCenter = NAN;
-    latestDetectionValid = false;
-    Serial.println("No chip found; adjust ROI or lighting.");
-    return;
-  }
-
-  latestConfidence = confidence;
-  latestThreshold = threshold;
-  latestDetectionValid = true;
-
-  Serial.printf(
-      "center=%.1f px, confidence=%.0f%%, threshold=%u",
-      latestCenter, confidence * 100.0f, threshold);
-
-  if (!isnan(referenceCenter)) {
-    const float shift = latestCenter - referenceCenter;
-    const char *direction =
-        shift > 0.05f ? "down" : shift < -0.05f ? "up" : "centered";
-    Serial.printf(", shift=%.1f px %s", fabsf(shift), direction);
-  }
-  Serial.println();
+  delay(10);
 }

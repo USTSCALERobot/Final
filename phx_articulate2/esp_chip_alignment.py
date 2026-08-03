@@ -84,7 +84,21 @@ class ChipShiftWiFi:
                 raise TimeoutError(
                     f"Received only {len(readings)} of {samples} shift samples"
                 )
-            readings.append(self.read_shift(remaining))
+            try:
+                readings.append(self.read_shift(remaining))
+            except RuntimeError as error:
+                # /shift returns HTTP 503 while a requested frame contains no
+                # valid chip. This is transient as the arm/camera settles, so
+                # retry it within the same overall timeout. Preserve all other
+                # ESP errors instead of hiding configuration or server faults.
+                if "no chip detected" not in str(error).lower():
+                    raise
+                print(
+                    f"{ESP_TAG} No chip in this frame; retrying "
+                    f"({len(readings)}/{samples} valid samples collected)"
+                )
+                time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+                continue
             if len(readings) < samples:
                 time.sleep(0.55)
         return float(statistics.median(readings))

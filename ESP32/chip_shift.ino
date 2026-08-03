@@ -305,6 +305,8 @@ void restoreStandardReference() {
 void initializeWirelessServer() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
   if (!WiFi.config(ESP_ADDRESS, PI_GATEWAY, SUBNET_MASK, PI_GATEWAY)) {
     Serial.println("ERROR: Failed to configure the ESP Wi-Fi address.");
     return;
@@ -323,6 +325,10 @@ void initializeWirelessServer() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println(
         "ERROR: Could not connect to the Pi hotspot; will keep retrying.");
+  } else {
+    Serial.printf(
+        "Connected to Pi hotspot. ESP IP: %s, signal: %d dBm\n",
+        WiFi.localIP().toString().c_str(), WiFi.RSSI());
   }
 
   server.on("/shift", HTTP_GET, sendShiftResponse);
@@ -391,8 +397,9 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED &&
       millis() - previousReconnectAttempt >= WIFI_RECONNECT_INTERVAL_MS) {
     previousReconnectAttempt = millis();
-    WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.printf("Wi-Fi disconnected (status %d); retrying...\n",
+                  WiFi.status());
+    WiFi.reconnect();
   }
 
   server.handleClient();

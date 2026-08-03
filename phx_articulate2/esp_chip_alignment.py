@@ -25,6 +25,7 @@ PIXELS_PER_CM = 36.5 # chip is ~2cm tall and is about 73 pixels tall in the ESP 
 # +1 means "down" in the ESP image requires increasing the selected arm axis.
 # Change to -1 if a down-image correction moves the arm the wrong direction.
 IMAGE_DOWN_TO_ARM_SIGN = 1
+ESP_TAG = "\033[1;36m[ESP]\033[0m"
 
 class ChipShiftWiFi:
     """HTTP client for the ESP32-CAM access point."""
@@ -57,6 +58,12 @@ class ChipShiftWiFi:
         payload = self._request("/shift", timeout)
         if not payload.get("ok"):
             raise RuntimeError(payload.get("error", "invalid ESP response"))
+        print(
+            f"{ESP_TAG} center={float(payload['center_px']):.1f} px, "
+            f"reference={float(payload['reference_px']):.1f} px, "
+            f"shift={float(payload['shift_px']):+.1f} px, "
+            f"confidence={float(payload['confidence']):.3f}"
+        )
         return float(payload["shift_px"])
 
     def calibrate_reference(self, timeout: float = 5.0) -> None:
@@ -77,7 +84,21 @@ class ChipShiftWiFi:
                 raise TimeoutError(
                     f"Received only {len(readings)} of {samples} shift samples"
                 )
-            readings.append(self.read_shift(remaining))
+            try:
+                readings.append(self.read_shift(remaining))
+            except RuntimeError as error:
+                # /shift returns HTTP 503 while a requested frame contains no
+                # valid chip. This is transient as the arm/camera settles, so
+                # retry it within the same overall timeout. Preserve all other
+                # ESP errors instead of hiding configuration or server faults.
+                if "no chip detected" not in str(error).lower():
+                    raise
+                print(
+                    f"{ESP_TAG} No chip in this frame; retrying "
+                    f"({len(readings)}/{samples} valid samples collected)"
+                )
+                time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+                continue
             if len(readings) < samples:
                 time.sleep(0.55)
         return float(statistics.median(readings))

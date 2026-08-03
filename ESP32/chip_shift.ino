@@ -4,11 +4,12 @@
     30 July 2026
     chip_shift.ino
 
-    ***NOTE this file is intended to be compiled with the Arduino IDE for an ESP32-CAM board. It is here for reference only.***
+    ***NOTE this file is intended to be compiled with the Arduino IDE for an
+    ESP32-S3 Sense camera board. It is here for reference only.***
 
   ESP32-CAM port of chip_shift.py
 
-  Default hardware: AI-Thinker ESP32-CAM with OV2640 camera.
+  Default hardware: ESP32-S3 Sense with OV2640 camera.
 
   Serial commands:
     c  Save the current chip center as the reference position
@@ -23,33 +24,38 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
-// AI-Thinker ESP32-CAM camera pins.
-#define PWDN_GPIO_NUM  32
+// ESP32-S3 Sense camera pins. These match the verified JPEG-streaming sketch.
+#define PWDN_GPIO_NUM  -1
 #define RESET_GPIO_NUM -1
-#define XCLK_GPIO_NUM   0
-#define SIOD_GPIO_NUM  26
-#define SIOC_GPIO_NUM  27
-#define Y9_GPIO_NUM    35
-#define Y8_GPIO_NUM    34
-#define Y7_GPIO_NUM    39
-#define Y6_GPIO_NUM    36
-#define Y5_GPIO_NUM    21
-#define Y4_GPIO_NUM    19
-#define Y3_GPIO_NUM    18
-#define Y2_GPIO_NUM     5
-#define VSYNC_GPIO_NUM 25
-#define HREF_GPIO_NUM  23
-#define PCLK_GPIO_NUM  22
+#define XCLK_GPIO_NUM  10
+#define SIOD_GPIO_NUM  40
+#define SIOC_GPIO_NUM  39
+#define Y9_GPIO_NUM    48
+#define Y8_GPIO_NUM    11
+#define Y7_GPIO_NUM    12
+#define Y6_GPIO_NUM    14
+#define Y5_GPIO_NUM    16
+#define Y4_GPIO_NUM    18
+#define Y3_GPIO_NUM    17
+#define Y2_GPIO_NUM    15
+#define VSYNC_GPIO_NUM 38
+#define HREF_GPIO_NUM  47
+#define PCLK_GPIO_NUM  13
 
 // Same ROI used by chip_shift.py for a 320 x 240 image.
 constexpr int ROI_X = 130;
-constexpr int ROI_Y = 0;
+// The held chip is centered near row 161 at the arm's inspection pose. Limit
+// the search to that region so objects passing through during pickup are not
+// mistaken for the held chip.
+constexpr int ROI_Y = 110;
 constexpr int ROI_W = 40;
-constexpr int ROI_H = 190;
+constexpr int ROI_H = 100;
 
 constexpr float MIN_ROW_OCCUPANCY = 0.60f;
-constexpr int MIN_RUN_LENGTH = 18;
-constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
+// The standard chip's detected dark run is about 57 rows tall. Reject tiny
+// shadows and very tall pieces of the arm or background.
+constexpr int MIN_RUN_LENGTH = 35;
+constexpr int MAX_RUN_LENGTH = 90;
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 1000;
 
 // The Pi broadcasts this hotspot from its Wi-Fi adapter. The ESP joins it at
@@ -60,9 +66,8 @@ const IPAddress ESP_ADDRESS(10, 42, 0, 20);
 const IPAddress PI_GATEWAY(10, 42, 0, 1);
 const IPAddress SUBNET_MASK(255, 255, 255, 0);
 
-// Reference produced by running this sketch's detection algorithm against
-// Images/standard_chip.png (320 x 240): longest occupied run = rows 133..189,
-// so its center is (133 + 189) / 2 = 161.0 px.
+// Reference measured from the standard held-chip image using the same camera
+// orientation: detected rows 133..189, centered at 161 px.
 constexpr float STANDARD_CHIP_CENTER = 161.0f;
 
 Preferences preferences;
@@ -183,6 +188,7 @@ bool detectChip(
 
   int bestStart = -1;
   int bestEnd = -1;
+  float bestReferenceDistance = INFINITY;
   int row = 0;
 
   while (row < ROI_H) {
@@ -195,10 +201,25 @@ bool detectChip(
     }
     const int end = row - 1;
 
-    if (start < ROI_H && end - start + 1 >= MIN_RUN_LENGTH &&
-        (bestStart < 0 || end - start > bestEnd - bestStart)) {
-      bestStart = start;
-      bestEnd = end;
+    if (start < ROI_H) {
+      const int runLength = end - start + 1;
+      // A run touching an ROI boundary is incomplete and is commonly the arm
+      // or image background rather than the whole chip.
+      const bool touchesBoundary = start == 0 || end == ROI_H - 1;
+      if (!touchesBoundary && runLength >= MIN_RUN_LENGTH &&
+          runLength <= MAX_RUN_LENGTH) {
+        const float candidateCenter =
+            ROI_Y + (start + end) / 2.0f;
+        const float referenceDistance =
+            fabsf(candidateCenter - referenceCenter);
+        if (bestStart < 0 || referenceDistance < bestReferenceDistance ||
+            (referenceDistance == bestReferenceDistance &&
+             runLength > bestEnd - bestStart + 1)) {
+          bestStart = start;
+          bestEnd = end;
+          bestReferenceDistance = referenceDistance;
+        }
+      }
     }
   }
 
@@ -256,10 +277,59 @@ bool initializeCamera() {
     Serial.printf("Camera initialization failed: 0x%x\n", result);
     return false;
   }
+
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor == nullptr) {
+    Serial.println("Camera sensor handle is null after initialization.");
+    esp_camera_deinit();
+    return false;
+  }
+  sensor->set_vflip(sensor, 1);
+  sensor->set_hmirror(sensor, 0);
+
+  return true;
+}
+
+bool captureAndDetectChip() {
+  camera_fb_t *frame = esp_camera_fb_get();
+  if (frame == nullptr) {
+    latestCenter = NAN;
+    latestDetectionValid = false;
+    Serial.println("ERROR: Camera capture failed.");
+    return false;
+  }
+
+  float confidence = 0.0f;
+  uint8_t threshold = 0;
+  const bool found = frame->format == PIXFORMAT_GRAYSCALE &&
+      detectChip(
+          frame->buf, frame->width, frame->height,
+          latestCenter, confidence, threshold);
+
+  esp_camera_fb_return(frame);
+
+  if (!found) {
+    latestCenter = NAN;
+    latestDetectionValid = false;
+    Serial.println("No chip found in requested frame.");
+    return false;
+  }
+
+  latestConfidence = confidence;
+  latestThreshold = threshold;
+  latestDetectionValid = true;
+
+  const float shift = latestCenter - referenceCenter;
+  Serial.printf(
+      "center=%.1f px, confidence=%.0f%%, threshold=%u, shift=%.1f px\n",
+      latestCenter, confidence * 100.0f, threshold, shift);
   return true;
 }
 
 void sendShiftResponse() {
+  // Capture on demand. The Pi requests this endpoint only after the arm has
+  // picked up the chip, reached its inspection pose, and settled.
+  captureAndDetectChip();
   if (!latestDetectionValid || isnan(latestCenter)) {
     server.send(
         503, "application/json",
@@ -279,6 +349,9 @@ void sendShiftResponse() {
 }
 
 void calibrateFromCurrentDetection() {
+  // Calibration is also an explicit measurement request, so use a fresh frame
+  // rather than requiring a preceding /shift call.
+  captureAndDetectChip();
   if (!latestDetectionValid || isnan(latestCenter)) {
     server.send(
         409, "application/json",
@@ -297,9 +370,11 @@ void calibrateFromCurrentDetection() {
 void restoreStandardReference() {
   preferences.remove("refCenter");
   referenceCenter = STANDARD_CHIP_CENTER;
-  server.send(
-      200, "application/json",
-      "{\"ok\":true,\"reference_px\":161.0}");
+  char response[96];
+  snprintf(
+      response, sizeof(response),
+      "{\"ok\":true,\"reference_px\":%.1f}", referenceCenter);
+  server.send(200, "application/json", response);
 }
 
 void initializeWirelessServer() {
@@ -368,7 +443,7 @@ void handleSerialCommand() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\nESP32-CAM chip-shift detector");
+  Serial.println("\nESP32-S3 chip-shift detector");
 
   preferences.begin("chip-shift", false);
   referenceCenter =
@@ -405,48 +480,5 @@ void loop() {
   server.handleClient();
   handleSerialCommand();
 
-  static unsigned long previousSample = 0;
-  if (millis() - previousSample < SAMPLE_INTERVAL_MS) {
-    delay(10);
-    return;
-  }
-  previousSample = millis();
-
-  camera_fb_t *frame = esp_camera_fb_get();
-  if (frame == nullptr) {
-    Serial.println("ERROR: Camera capture failed.");
-    return;
-  }
-
-  float confidence = 0.0f;
-  uint8_t threshold = 0;
-  const bool found = frame->format == PIXFORMAT_GRAYSCALE &&
-      detectChip(
-          frame->buf, frame->width, frame->height,
-          latestCenter, confidence, threshold);
-
-  esp_camera_fb_return(frame);
-
-  if (!found) {
-    latestCenter = NAN;
-    latestDetectionValid = false;
-    Serial.println("No chip found; adjust ROI or lighting.");
-    return;
-  }
-
-  latestConfidence = confidence;
-  latestThreshold = threshold;
-  latestDetectionValid = true;
-
-  Serial.printf(
-      "center=%.1f px, confidence=%.0f%%, threshold=%u",
-      latestCenter, confidence * 100.0f, threshold);
-
-  if (!isnan(referenceCenter)) {
-    const float shift = latestCenter - referenceCenter;
-    const char *direction =
-        shift > 0.05f ? "down" : shift < -0.05f ? "up" : "centered";
-    Serial.printf(", shift=%.1f px %s", fabsf(shift), direction);
-  }
-  Serial.println();
+  delay(10);
 }

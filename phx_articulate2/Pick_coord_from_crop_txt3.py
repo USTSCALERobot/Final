@@ -20,6 +20,7 @@ from esp_chip_alignment import ChipShiftWiFi, correction_cm
 
 # The ESP joins the Pi's SCALE-ARM hotspot at this fixed address.
 ESP_CHIP_URL = os.environ.get("ESP_CHIP_URL", "http://10.42.0.20")
+ESP_TAG = "\033[1;36m[ESP]\033[0m"
 
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
@@ -218,6 +219,9 @@ def pick_up(x, y, additional_angle=0):
     go_to_pos(intermediate_pos, theta0_4)
     fixed_position = [10, 0, 25]
     go_to_pos(fixed_position, 0)
+    # Allow the arm, chip, and ESP's 500 ms camera sample to settle before
+    # measuring. Otherwise the detector sees objects moving through its ROI.
+    time.sleep(1.5)
 
     """
         NEW ESP CODE
@@ -235,7 +239,7 @@ def pick_up(x, y, additional_angle=0):
         0.0 if abs(shift_pixels) <= 2.0 else correction_cm(shift_pixels)
     )
     print(
-        f"Picked-chip offset: {shift_pixels:+.1f} px; "
+        f"{ESP_TAG} Picked-chip offset: {shift_pixels:+.1f} px; "
         f"PCB Y correction: {placement_y_correction:+.3f} cm"
     )
     return placement_y_correction
@@ -423,7 +427,7 @@ def main():
             dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
             dy += placement_y_correction
             print(
-                f"Applying ESP correction to PCB Y: "
+                f"{ESP_TAG} Applying correction to PCB Y: "
                 f"{placement_y_correction:+.3f} cm"
             )
             print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")

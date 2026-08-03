@@ -61,10 +61,10 @@ const IPAddress ESP_ADDRESS(10, 42, 0, 20);
 const IPAddress PI_GATEWAY(10, 42, 0, 1);
 const IPAddress SUBNET_MASK(255, 255, 255, 0);
 
-// Reference produced by running this sketch's detection algorithm against
-// Images/standard_chip.png (320 x 240): longest occupied run = rows 133..189,
-// so its center is (133 + 189) / 2 = 161.0 px.
-constexpr float STANDARD_CHIP_CENTER = 161.0f;
+// The original standard image center was 161 px. The ESP32-S3 Sense camera is
+// vertically flipped below, so for a 240-row frame its matching coordinate is
+// (240 - 1) - 161 = 78 px.
+constexpr float STANDARD_CHIP_CENTER = 78.0f;
 
 Preferences preferences;
 WebServer server(80);
@@ -308,9 +308,11 @@ void calibrateFromCurrentDetection() {
 void restoreStandardReference() {
   preferences.remove("refCenter");
   referenceCenter = STANDARD_CHIP_CENTER;
-  server.send(
-      200, "application/json",
-      "{\"ok\":true,\"reference_px\":161.0}");
+  char response[96];
+  snprintf(
+      response, sizeof(response),
+      "{\"ok\":true,\"reference_px\":%.1f}", referenceCenter);
+  server.send(200, "application/json", response);
 }
 
 void initializeWirelessServer() {

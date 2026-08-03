@@ -4,11 +4,12 @@
     30 July 2026
     chip_shift.ino
 
-    ***NOTE this file is intended to be compiled with the Arduino IDE for an ESP32-CAM board. It is here for reference only.***
+    ***NOTE this file is intended to be compiled with the Arduino IDE for an
+    ESP32-S3 Sense camera board. It is here for reference only.***
 
   ESP32-CAM port of chip_shift.py
 
-  Default hardware: AI-Thinker ESP32-CAM with OV2640 camera.
+  Default hardware: ESP32-S3 Sense with OV2640 camera.
 
   Serial commands:
     c  Save the current chip center as the reference position
@@ -23,23 +24,23 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
-// AI-Thinker ESP32-CAM camera pins.
-#define PWDN_GPIO_NUM  32
+// ESP32-S3 Sense camera pins. These match the verified JPEG-streaming sketch.
+#define PWDN_GPIO_NUM  -1
 #define RESET_GPIO_NUM -1
-#define XCLK_GPIO_NUM   0
-#define SIOD_GPIO_NUM  26
-#define SIOC_GPIO_NUM  27
-#define Y9_GPIO_NUM    35
-#define Y8_GPIO_NUM    34
-#define Y7_GPIO_NUM    39
-#define Y6_GPIO_NUM    36
-#define Y5_GPIO_NUM    21
-#define Y4_GPIO_NUM    19
-#define Y3_GPIO_NUM    18
-#define Y2_GPIO_NUM     5
-#define VSYNC_GPIO_NUM 25
-#define HREF_GPIO_NUM  23
-#define PCLK_GPIO_NUM  22
+#define XCLK_GPIO_NUM  10
+#define SIOD_GPIO_NUM  40
+#define SIOC_GPIO_NUM  39
+#define Y9_GPIO_NUM    48
+#define Y8_GPIO_NUM    11
+#define Y7_GPIO_NUM    12
+#define Y6_GPIO_NUM    14
+#define Y5_GPIO_NUM    16
+#define Y4_GPIO_NUM    18
+#define Y3_GPIO_NUM    17
+#define Y2_GPIO_NUM    15
+#define VSYNC_GPIO_NUM 38
+#define HREF_GPIO_NUM  47
+#define PCLK_GPIO_NUM  13
 
 // Same ROI used by chip_shift.py for a 320 x 240 image.
 constexpr int ROI_X = 130;
@@ -256,6 +257,16 @@ bool initializeCamera() {
     Serial.printf("Camera initialization failed: 0x%x\n", result);
     return false;
   }
+
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor == nullptr) {
+    Serial.println("Camera sensor handle is null after initialization.");
+    esp_camera_deinit();
+    return false;
+  }
+  sensor->set_vflip(sensor, 1);
+  sensor->set_hmirror(sensor, 0);
+
   return true;
 }
 
@@ -368,7 +379,7 @@ void handleSerialCommand() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\nESP32-CAM chip-shift detector");
+  Serial.println("\nESP32-S3 chip-shift detector");
 
   preferences.begin("chip-shift", false);
   referenceCenter =

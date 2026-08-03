@@ -47,15 +47,15 @@ constexpr int ROI_X = 130;
 // The held chip is centered near row 161 at the arm's inspection pose. Limit
 // the search to that region so objects passing through during pickup are not
 // mistaken for the held chip.
-constexpr int ROI_Y = 110;
+constexpr int ROI_Y = 90;
 constexpr int ROI_W = 40;
-constexpr int ROI_H = 100;
+constexpr int ROI_H = 140;
 
 constexpr float MIN_ROW_OCCUPANCY = 0.60f;
-// The standard chip's detected dark run is about 57 rows tall. Reject tiny
-// shadows and very tall pieces of the arm or background.
-constexpr int MIN_RUN_LENGTH = 35;
-constexpr int MAX_RUN_LENGTH = 90;
+// On-demand capture already limits detection to the post-pick inspection
+// moment. Keep only a modest minimum so exposure changes do not fragment the
+// chip into a run that is rejected.
+constexpr int MIN_RUN_LENGTH = 18;
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 1000;
 
 // The Pi broadcasts this hotspot from its Wi-Fi adapter. The ESP joins it at
@@ -203,11 +203,7 @@ bool detectChip(
 
     if (start < ROI_H) {
       const int runLength = end - start + 1;
-      // A run touching an ROI boundary is incomplete and is commonly the arm
-      // or image background rather than the whole chip.
-      const bool touchesBoundary = start == 0 || end == ROI_H - 1;
-      if (!touchesBoundary && runLength >= MIN_RUN_LENGTH &&
-          runLength <= MAX_RUN_LENGTH) {
+      if (runLength >= MIN_RUN_LENGTH) {
         const float candidateCenter =
             ROI_Y + (start + end) / 2.0f;
         const float referenceDistance =
@@ -377,6 +373,40 @@ void restoreStandardReference() {
   server.send(200, "application/json", response);
 }
 
+void sendDebugFrame() {
+  camera_fb_t *frame = esp_camera_fb_get();
+  if (frame == nullptr) {
+    server.send(
+        503, "application/json",
+        "{\"ok\":false,\"error\":\"camera capture failed\"}");
+    return;
+  }
+
+  if (frame->format != PIXFORMAT_GRAYSCALE) {
+    esp_camera_fb_return(frame);
+    server.send(
+        500, "application/json",
+        "{\"ok\":false,\"error\":\"camera frame is not grayscale\"}");
+    return;
+  }
+
+  // PGM is a simple viewable grayscale format: an ASCII header followed by
+  // the camera's raw 8-bit pixels. It lets us inspect the exact detector input.
+  char header[48];
+  const int headerLength = snprintf(
+      header, sizeof(header), "P5\n%u %u\n255\n", frame->width, frame->height);
+  server.sendHeader(
+      "Content-Disposition", "attachment; filename=esp-debug-frame.pgm");
+  server.setContentLength(headerLength + frame->len);
+  server.send(200, "image/x-portable-graymap", "");
+
+  WiFiClient responseClient = server.client();
+  responseClient.write(
+      reinterpret_cast<const uint8_t *>(header), headerLength);
+  responseClient.write(frame->buf, frame->len);
+  esp_camera_fb_return(frame);
+}
+
 void initializeWirelessServer() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
@@ -409,6 +439,7 @@ void initializeWirelessServer() {
   server.on("/shift", HTTP_GET, sendShiftResponse);
   server.on("/calibrate", HTTP_POST, calibrateFromCurrentDetection);
   server.on("/reset-reference", HTTP_POST, restoreStandardReference);
+  server.on("/debug-frame", HTTP_GET, sendDebugFrame);
   server.on("/health", HTTP_GET, []() {
     server.send(200, "application/json", "{\"ok\":true}");
   });

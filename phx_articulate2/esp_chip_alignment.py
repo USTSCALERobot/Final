@@ -29,7 +29,11 @@ ESP_TAG = "\033[1;36m[ESP]\033[0m"
 
 class ChipShiftWiFi:
     """HTTP client for the ESP32-CAM access point."""
-
+    # This class uses dunder methods to support the context manager protocol, so you can use it in a with statement. For example:
+    #
+    # with ChipShiftWiFi("http://...") as esp:
+    #     shift = esp.read_shift()
+    
     def __init__(self, base_url: str = "http://10.42.0.20"):
         self.base_url = base_url.rstrip("/")
 

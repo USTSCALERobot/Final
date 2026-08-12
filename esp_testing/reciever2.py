@@ -99,9 +99,8 @@ def main():
             '''bounding boxes'''
             boxes = results[0].boxes
             if boxes is not None and len(boxes) > 0:
-                xyxy = boxes.xyxy.cpu().np()      # (N, 4) array: x1, y1, x2, y2 in pixels
-                conf = boxes.conf.cpu().np()      # (N,) confidence scores
-                cls  = boxes.cls.cpu().np()       # (N,) class indices
+                xyxy = boxes.xyxy.cpu().numpy()      # (N, 4) array: x1, y1, x2, y2 in pixels
+                cls  = boxes.cls.cpu().numpy()       # (N,) class indices
 
                 for (x1, y1, x2, y2), c, k in zip(xyxy, cls):
                     label = model.names[int(k)]

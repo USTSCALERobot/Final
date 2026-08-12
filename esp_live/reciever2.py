@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from collections import defaultdict
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -65,6 +67,8 @@ def main():
     print(f"Waiting for ESP32 on {args.host}:{args.port}...")
     conn, addr = server.accept()
     print(f"Connected to {addr}")
+
+    midpoints_x = defaultdict(list)
 
     if args.display:
         cv2.namedWindow("ESP32 camera + inference", cv2.WINDOW_NORMAL)

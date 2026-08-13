@@ -125,7 +125,7 @@ def main():
         if args.display:
             cv2.destroyAllWindows()
 
-        for label, xs in midpoints_x.items(): #once the main loop is over left with avg x midpoint coordinates
+        for label, xs in midpoints_x.items(): #once the main loop is over, left with avg x midpoint coordinates
             avg_x = sum(xs) / len(xs)
             print(f"{label}: avg midpoint x = {avg_x: .1f} over {len(xs)} detections")
 

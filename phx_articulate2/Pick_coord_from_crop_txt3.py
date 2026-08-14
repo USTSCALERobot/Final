@@ -57,7 +57,7 @@ def transform_coordinates(x1, y1):
     k2_x = 0.3
     # Coeffs for Y-direction micro-adjustments ...side to side sway 
     k1_y = 0.00
-    k2_y = 0.00 
+    k2_y = 0.0 
 
     # 2nd degree offest adjustment equation 
     x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)

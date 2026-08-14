@@ -108,26 +108,25 @@ def activate_hailo_env():
 # --- Change Working Directory ---
 os.chdir("/home/scalepi/hailo-rpi5-examples")
 
-# --- Kinematic Helpers ---
 def time_to_distance(t):
     if t <= 0: return 0.0
-    if t <= 2.61:
-        return 0.0274 * (t**2) + 2.0731 * t + 0.2780
-    else:
-        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+    if t <= 2.61: 
+        return 0.0274 * (t **2) + 2.0731 * t + 0.2780
+    else: 
+        dist_at_2_61 = 0.0274 * (2.61 **2) + 2.0731 * 2.61 + 0.2780
         return dist_at_2_61 + 2.2163 * (t - 2.61)
 
 def distance_to_time(d):
     if d <= 0: return 0.0
-    dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+    dist_at_2_61 = 0.0274 * (2.61 **2) + 2.0731 * 2.61 + 0.2780
     if d <= dist_at_2_61:
         a = 0.0274
         b = 2.0731
         c = 0.2780 - d
-        discriminant = b**2 - 4*a*c
+        discriminant = b**2 -4*a*c
         if discriminant < 0: return 0.0
-        return (-b + math.sqrt(discriminant)) / (2*a)
-    else:
+        return ((-b + math.sqrt(discriminant))/2*a)
+    else: 
         return 2.61 + (d - dist_at_2_61) / 2.2163
 
 # --- Callback Class for Detection ---

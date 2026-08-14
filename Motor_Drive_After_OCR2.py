@@ -40,7 +40,7 @@ def main():
     
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
-    print(f"Running motor for {run_time:.2f}s (Target: {base_distance}cm, OCR Offset: {max_offset:.2f}s)")
+    print(f"Running motor for {run_time:.2f}s based on OCR calculations)")
     time.sleep(run_time)  # new time differential for multiple chips 
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")

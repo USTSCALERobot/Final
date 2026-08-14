@@ -23,64 +23,19 @@ request = chip.request_lines(
     consumer="motor_after_ocr"
 )
 
-def get_max_time_offset():
-    max_offset = 0.0
+def get_required_run_time():
+    required_time = 9.25 # default fallback
     if os.path.exists(DETECTION_FILE):
         with open(DETECTION_FILE, 'r') as f:
             for line in f:
-                m = re.match(r'^\s*(?:Global_Max_)?Time_Offset:\s*([0-9.]+)', line)
+                m = re.match(r'^\s*Required_Belt_Run_Time:\s*([0-9.]+)', line)
                 if m:
-                    offset = float(m.group(1))
-                    if offset > max_offset:
-                        max_offset = offset
-    return max_offset
+                    required_time = float(m.group(1))
+                    break
+    return required_time
 
 def main():
-    max_offset = get_max_time_offset()
- 
-    
-    # Base distance we want the belt to travel 
-    # Using linear model for base distance for anything > 2.61s:
-    # Distance = 2.2163 * t + 0.0909 
-    offset_distance = 4.0                       # allows for you to move the first chip further down the belt
-    base_distance = 18.75 + offset_distance     # this is our center distance meaning it takes 18.75cm to reach the center of the target    
-    
-    # Distance traveled at the end of the acceleration phase (t=2.61s)
-    dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780 # ~5.8754 cm
-    
-    # Calculate how far the belt has already traveled during the OCR phase (max_offset)
-    if max_offset <= 0:
-        distance_already_traveled = 0.0
-    elif max_offset <= 2.61:
-        # Quadratic model (acceleration phase)
-        distance_already_traveled = 0.0274 * (max_offset**2) + 2.0731 * max_offset + 0.2780
-    else:
-        # Acceleration phase + steady-state linear phase
-        distance_already_traveled = dist_at_2_61 + 2.2163 * (max_offset - 2.61)
-        
-    # Calculate the remaining distance the belt needs to travel
-    remaining_distance = max(0.0, base_distance - distance_already_traveled)
-    
-    # Calculate how much time it takes to travel that remaining distance
-    if remaining_distance <= 0:
-        run_time = 0.0
-    elif remaining_distance <= dist_at_2_61:
-        # Reverse Quadratic: 0.0274*t^2 + 2.0731*t + (0.2780 - remaining_distance) = 0
-
-        a = 0.0274
-        b = 2.0731
-        c = 0.2780 - remaining_distance
-        
-        # Protect against imaginary values and negative time
-        discriminant = b**2 - 4*a*c
-        if discriminant < 0:
-            run_time = 0.0
-        else:
-            t = (-b + math.sqrt(discriminant)) / (2*a)
-            run_time = max(0.0, t)
-    else:
-        # Time for acceleration phase (2.61s) + time for remaining distance at steady velocity
-        run_time = 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
+    run_time = get_required_run_time()
     
     
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)

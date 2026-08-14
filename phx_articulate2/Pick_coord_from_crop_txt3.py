@@ -330,14 +330,13 @@ def main():
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
         
-        # Use findall to get ALL Time_Offset matches in the block, and take the LAST one.
-        # This completely ignores any global maximum Time_Offset written at the top of the file.
-        mts = re.findall(r"^Time_Offset:\s*([0-9.]+)", block, flags=re.MULTILINE)
-        time_offset = float(mts[-1]) if mts else 0.0
+        # Use findall to get ALL Y_Offset_cm matches in the block, and take the LAST one.
+        myo = re.findall(r"^Y_Offset_cm:\s*([0-9.]+)", block, flags=re.MULTILINE)
+        y_offset_cm = float(myo[-1]) if myo else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))
-        detections.append((x_raw, y_raw, angle, part_circuit, part_name, time_offset))
+        detections.append((x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm))
 
     if not detections:
         print("No detections found.")
@@ -365,20 +364,10 @@ def main():
         detections.remove(chosen)       
         
         # --- Execute chosen detection ---
-        x_raw, y_raw, angle, part_circuit, part_name, time_offset = chosen
+        x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm = chosen
         tx, ty = transform_coordinates(x_raw, y_raw)
 
-        # Apply physical offset for trailing chips based on dynamic time delta
-        # Using the piecewise kinematic model for belt movement:
-        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780 # ~5.8754 cm
-        if time_offset <= 0:
-            y_offset_cm = 0.0
-        elif time_offset <= 2.61:
-            y_offset_cm = 0.0274 * (time_offset**2) + 2.0731 * time_offset + 0.2780
-        else:
-            y_offset_cm = dist_at_2_61 + 2.2163 * (time_offset - 2.61)
-            
-        # Since y-axis is parallel to the belt and upstream is +y, we add the offset
+        # Apply pre-calculated physical offset for trailing chips
         ty += y_offset_cm
 
         if abs(angle) < 1.0:

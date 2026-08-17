@@ -125,7 +125,7 @@ def distance_to_time(d):
         c = 0.2780 - d
         discriminant = b**2 -4*a*c
         if discriminant < 0: return 0.0
-        return ((-b + math.sqrt(discriminant))/2*a)
+        return ((-b + math.sqrt(discriminant))/(2*a))
     else: 
         return 2.61 + (d - dist_at_2_61) / 2.2163
 

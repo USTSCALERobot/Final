@@ -296,6 +296,13 @@ def none_belt_run():
             led_request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
         except Exception:
             pass
+
+'''
+original selection logic: 
+    sort detections from 'NONE' detections and remove 'NONE' chips first into the empty
+    bin at the end of the conveyer belt. then remove recognized chips to there respective 
+    pre-mapped location
+'''
 def selection_option1(circuits,detections):
     for i in range(len(detections)):    # This will loop through all the detections
     
@@ -345,7 +352,56 @@ def selection_option1(circuits,detections):
                 drop_off(dx, dy, dz, desired_angle)
             
             print("Remaining detections to process: ", len(detections))
+
+'''
+FIFO selection logic:
+    This is a simple first in first out pickup and dropoff selection algorithm. It does 
+    not care about whether a chip was regognized or not 
+'''
+def selection_option2(detections):
+    for i in range(len(detections)):    # This will loop through all the detections
+            # Select the i-th detection 
+            chosen = detections[i]  
+
+            # After selecting a detection, remove it from list and process next on following iteration
+            detections.remove(chosen)       
+            
+            # --- Execute chosen detection ---
+            x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm = chosen
+            tx, ty = transform_coordinates(x_raw, y_raw)
     
+            # Apply pre-calculated physical offset for trailing chips
+            ty += y_offset_cm
+    
+            if abs(angle) < 1.0:
+                pickup_offset = 0
+            elif angle > 90:
+                pickup_offset = angle - 180
+            else:
+                pickup_offset = angle
+    
+            print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+            pick_up(tx, ty, pickup_offset)
+            phx.rest_position_closed()
+    
+            # --- Drop-off ---
+            # Drops of in a linear arangment along the x axis assuming a 1cm width
+            # and coordinates relative to center of chip. 
+            # we should see a 3.5 cm gap from center to center we subtract in the x-direction
+            dx, dy, dz, desired_angle = 5 - (i * 3.5), -15, 15, -90    #raised to height of 15 for now  
+            print("Dropping off chip:",(i+1))
+            drop_off(dx, dy, dz, desired_angle)
+
+            
+            print("Remaining detections to process: ", len(detections))
+
+'''
+Size-by-Area Selection logic: 
+    This will select detections based on their physical size and sort them from smallest 
+    to largest. 
+'''
+def selection_option3(detections):
+    for i in range(len(detections)):
 
 # --- Main Loop ---
 def main():

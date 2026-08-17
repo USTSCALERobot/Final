@@ -296,7 +296,56 @@ def none_belt_run():
             led_request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
         except Exception:
             pass
-
+def selection_option1(circuits,detections):
+    for i in range(len(detections)):    # This will loop through all the detections
+    
+            # Case 1: if all parts are None → just pick first (only None parts exist)
+            all_none = all(d[4] == "None" for d in detections)
+    
+            if all_none:
+                chosen = detections[0]  # just pick up
+            else:
+                # Case 2: if part_name == None → use last detection with None
+                none_candidates = [d for d in detections if d[4] == "None"]
+                if none_candidates:
+                    chosen = none_candidates[-1]  # last None
+                else:
+                    # Case 3: otherwise, take the first with a valid part name
+                    valid_candidates = [d for d in detections if d[4] != "None"]
+                    chosen = valid_candidates[0]
+            # After selecting a detection, remove it from list and process next on following iteration
+            detections.remove(chosen)       
+            
+            # --- Execute chosen detection ---
+            x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm = chosen
+            tx, ty = transform_coordinates(x_raw, y_raw)
+    
+            # Apply pre-calculated physical offset for trailing chips
+            ty += y_offset_cm
+    
+            if abs(angle) < 1.0:
+                pickup_offset = 0
+            elif angle > 90:
+                pickup_offset = angle - 180
+            else:
+                pickup_offset = angle
+    
+            print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+            pick_up(tx, ty, pickup_offset)
+            phx.rest_position_closed()
+    
+            # --- Drop-off ---
+            if part_name == "None" or part_circuit is None:
+                dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 17 for now this is supposed to be droppoff location 
+                print("Dropping off to None Bin")
+                drop_off(dx, dy, dz, desired_angle)
+            else:
+                dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+                print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
+                drop_off(dx, dy, dz, desired_angle)
+            
+            print("Remaining detections to process: ", len(detections))
+    
 
 # --- Main Loop ---
 def main():
@@ -344,54 +393,7 @@ def main():
 
 
     # --- Selection Logic ---
-    for i in range(len(detections)):    # This will loop through all the detections
-
-        # Case 1: if all parts are None → just pick first (only None parts exist)
-        all_none = all(d[4] == "None" for d in detections)
-
-        if all_none:
-            chosen = detections[0]  # just pick up
-        else:
-            # Case 2: if part_name == None → use last detection with None
-            none_candidates = [d for d in detections if d[4] == "None"]
-            if none_candidates:
-                chosen = none_candidates[-1]  # last None
-            else:
-                # Case 3: otherwise, take the first with a valid part name
-                valid_candidates = [d for d in detections if d[4] != "None"]
-                chosen = valid_candidates[0]
-        # After selecting a detection, remove it from list and process next on following iteration
-        detections.remove(chosen)       
-        
-        # --- Execute chosen detection ---
-        x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm = chosen
-        tx, ty = transform_coordinates(x_raw, y_raw)
-
-        # Apply pre-calculated physical offset for trailing chips
-        ty += y_offset_cm
-
-        if abs(angle) < 1.0:
-            pickup_offset = 0
-        elif angle > 90:
-            pickup_offset = angle - 180
-        else:
-            pickup_offset = angle
-
-        print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
-        pick_up(tx, ty, pickup_offset)
-        phx.rest_position_closed()
-
-        # --- Drop-off ---
-        if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 17 for now this is supposed to be droppoff location 
-            print("Dropping off to None Bin")
-            drop_off(dx, dy, dz, desired_angle)
-        else:
-            dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
-            print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
-            drop_off(dx, dy, dz, desired_angle)
-        
-        print("Remaining detections to process: ", len(detections))
+    selection_option1(circuits,detections)
 
     print("All operations complete. Resting.")
  

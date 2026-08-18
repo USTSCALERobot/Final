@@ -208,7 +208,7 @@ def mask_and_rotate(original_image):
 
     rotated_180 = cv2.rotate(rotated, cv2.ROTATE_180)
     cv2.imwrite(ROTATED_OUTPUT_180, rotated_180)
-    return angle
+    return angle, wb, hb
 
 def run_ocr_and_select(reader):
     text0, _ = run_ocr_once(reader, ROTATED_OUTPUT)
@@ -221,7 +221,7 @@ def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)
 
 # ===== Updated: append with Frame line (unchanged logic, now gets frame_no robustly) =====
-def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=0.0):
+def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=0.0, wb=0.0, hb=0.0):
     # Read the user’s request (circuit or manual parts)
     circuit_name = None
     manual_parts = []
@@ -263,6 +263,7 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=
         f.write(f"{crop_index}. Raw OCR Text: {raw_text}\n")
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
+        f.write(f"Chip Area: {wb * hb:.2f}\n")
         f.write(f"Closest known part: {best_part or 'None'}\n")
         f.write(f"Match ratio: {score:.2f}\n")
         f.write(f"Requested Part(s): {source_desc}\n")
@@ -304,14 +305,14 @@ def main():
             if is_duplicate_point(mid, seen, threshold=0.01):
                 continue
             seen.append(mid)
-
-            angle = mask_and_rotate(crop_path)
+            # added width and height to the mask and rotate function
+            angle, wb, hb = mask_and_rotate(crop_path)
 
             best_img = run_ocr_and_select(reader)
             cv2.imwrite(FINAL_OCR_OUTPUT, cv2.imread(best_img))
 
             t_offset = frame_time_offsets.get(frame_no, 0.0)
-            update_detection_file(angle, idx, mid, frame_no, t_offset)
+            update_detection_file(angle, idx, mid, frame_no, t_offset, wb, hb)
 
 if __name__ == "__main__":
     main()

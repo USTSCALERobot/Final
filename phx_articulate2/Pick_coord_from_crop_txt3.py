@@ -45,7 +45,7 @@ def transform_coordinates(x1, y1):
     # The -3 is the chips moving an additional 3cm further down the belt 
     # TODO: figure out how to pass the offset value from Motor_Drive_After_OCR2.py
     # This performs the linear transform for the coordinate system from the camera pixels 
-    y2 = y1 * (y_right - y_left) + y_left - 4     # the extra .075 is an additional shift from observed differences in the pickup 
+    y2 = y1 * (y_right - y_left) + y_left - 4.0     # the extra .075 is an additional shift from observed differences in the pickup 
 
     # Below this are specific calibrations and micro-adjustments for better alignment
 
@@ -56,7 +56,7 @@ def transform_coordinates(x1, y1):
     k1_x = 0.03
     k2_x = 0.3
     # Coeffs for Y-direction micro-adjustments ...side to side sway 
-    k1_y = 0.00
+    k1_y = 0.0
     k2_y = 0.0 
 
     # 2nd degree offest adjustment equation 
@@ -219,53 +219,33 @@ def pick_up(x, y, additional_angle=0):
     go_to_pos(fixed_position, 0)
 
 
-def calculate_drop_bearing(x, y):
-    """Compute the raw bearing angle for drop-off, based purely on the (x, y) offset from the base.
-    Uses absolute values so that drop quadrants always yield a positive bearing between 0-90°.
-    """
-    return math.degrees(math.atan2(abs(y), abs(x)))
-
 
 # --- Updated drop_off() with raw-based adjustment ---
 def drop_off(x, y, z, desired_angle):
-    """ Drop at (x, y, z):
-    1) raw = calculate_drop_bearing(x, y)
-    2) zero_offset = raw - 90
-    3) delta = zero_offset + desired_angle
-    4) if x >= 0: new_angle = raw - delta
-       else: new_angle = raw + delta
-    5) normalize, convert to steps, set_gripper
-    6) move, open, and return home
+    """ Drop at (x, y, z) with specific angle:
+    1) calculate arm base angle
+    2) counter-rotate and apply base 
+    3) 1.2 scaling found from datasheet servo mapping
+    4) move, open, and return home
     """
     drop_off_pos = [x, y, z]
     theta0_4 = -95
 
-    # Step 1: raw bearing
-    raw = calculate_drop_bearing(x, y)
-    print(f"Raw drop bearing: {raw:.2f}°")
+    # Step 1: calculate base angle
+    theta_0 = math.degrees(math.atan2(y,x))
+    print(f"arm base angle (theta_0): {theta_0:.2f}")
 
-    # Step 2: baseline offset
-    zero_offset = raw - 90
+    # Step 2-3: counter rotate and apply scaling
+    # parrallel to x-axis would be 0-degrees
+    new_angle = 180 + ((theta_0 + desired_angle)* 1.2)
 
-    # Step 3: compute delta
-    delta = zero_offset + desired_angle
-    print(f"Computed delta: zero_offset({zero_offset:.2f}) + desired({desired_angle:.2f}) = {delta:.2f}°")
-
-    # Step 4: apply conditional sign
-    if x <= 0:
-        new_angle = delta + raw
-        print(f"x>=0: new_angle = raw({raw:.2f}) - delta({delta:.2f}) = {new_angle:.2f}°")
-    else:
-        new_angle = raw - delta
-        print(f"x<0: new_angle = raw({raw:.2f}) + delta({delta:.2f}) = {new_angle:.2f}°")
-
-    # Step 5: normalize and set
+    # normalize and set
     new_angle %= 360
     motor_pos = angle_to_motor_steps(new_angle)
     print(f"Setting gripper to {new_angle:.2f}° (motor pos {motor_pos})")
     set_gripper(motor_pos)
 
-    # Step 6: perform motion
+    # Perform motion
     print(f"Dropping off at {drop_off_pos}, base θ₀₋₄ = {theta0_4}")
     move_to_position_with_z_adjustment(drop_off_pos, theta0_4)
     phx.open_gripper2()
@@ -388,7 +368,7 @@ def selection_option2(detections):
             # Drops of in a linear arangment along the x axis assuming a 1cm width
             # and coordinates relative to center of chip. 
             # we should see a 3.5 cm gap from center to center we subtract in the x-direction
-            dx, dy, dz, desired_angle = 5 - (i * 3.5), -15, 15, -90    #raised to height of 15 for now  
+            dx, dy, dz, desired_angle = (5 - (i * 3.5)), -18, 12.5, 90    #raised to height of 13 for now  
             print("Dropping off chip:",(i+1))
             drop_off(dx, dy, dz, desired_angle)
             
@@ -430,7 +410,7 @@ def selection_option3(detections):
         # Drops of in a linear arangment along the x axis assuming a 1cm width
         # and coordinates relative to center of chip. 
         # we should see a 3.5 cm gap from center to center we subtract in the x-direction
-        dx, dy, dz, desired_angle = 5 - (i * 3.5), -15, 15, -90    #raised to height of 15 for now  
+        dx, dy, dz, desired_angle = 5 - (i * 3.5), -18, 12.5, 90    #raised to height of 15 for now  
         print("Dropping off chip:",(i+1))
         drop_off(dx, dy, dz, desired_angle)
     
@@ -485,8 +465,10 @@ def main():
 
 
     # --- Selection Logic ---
-    selection_option1(circuits,detections)
-
+    #selection_option1(circuits,detections)
+    # selection_option2(detections)
+    selection_option3(detections)
+    
     print("All operations complete. Resting.")
  
 

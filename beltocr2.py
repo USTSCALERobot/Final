@@ -349,16 +349,35 @@ def mask_and_rotate(original_image):
     if gray is None or color is None:
         raise ValueError(f"Could not load: {original_image}")
 
-    crop_h, crop_w = color.shape[:2]
-
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    kernel = np.ones((3,3), np.uint8)
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+    # Closing is less likely than opening to erase narrow chip edges.  Try both
+    # polarities because the belt/background can be either lighter or darker
+    # than the package depending on the capture setup.
+    kernel = np.ones((3, 3), np.uint8)
+    candidates = []
+    image_area = gray.size
+    image_center = np.array([gray.shape[1] / 2.0, gray.shape[0] / 2.0])
 
-    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    area = gray.size
-    valid = [c for c in contours if cv2.contourArea(c) < 0.9*area]
-    blob = max(valid if valid else contours, key=cv2.contourArea)
+    for binary in (thresh, cv2.bitwise_not(thresh)):
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+        contours, _ = cv2.findContours(
+            cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        for contour in contours:
+            contour_area = cv2.contourArea(contour)
+            if not 0.05 * image_area < contour_area < 0.95 * image_area:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            center = np.array([x + w / 2.0, y + h / 2.0])
+            center_distance = np.linalg.norm(center - image_center)
+            # Prefer a large, central contour rather than a letter or a strip
+            # of background touching one edge of the crop.
+            score = contour_area / (1.0 + center_distance)
+            candidates.append((score, contour))
+
+    if not candidates:
+        raise ValueError(f"Could not find a chip-sized contour in: {original_image}")
+    blob = max(candidates, key=lambda item: item[0])[1]
 
     mask = np.zeros_like(gray)
     cv2.drawContours(mask, [blob], -1, 255, thickness=-1)
@@ -368,13 +387,60 @@ def mask_and_rotate(original_image):
     cv2.imwrite(FINAL_MASKED_IMAGE, masked)
 
     (cx, cy), (wb, hb), angle = cv2.minAreaRect(blob)
-    
-
     if wb < hb:
         angle += 90
-    M = cv2.getRotationMatrix2D((cx,cy), angle, 1.0)
-    rotated = cv2.warpAffine(masked, M, (masked.shape[1], masked.shape[0]),
-                             flags=cv2.INTER_CUBIC, borderValue=(255,255,255))
+
+    # Rectify all four corners rather than rotating within the old canvas.
+    # This corrects perspective and prevents the chip corners from being cut.
+    box = cv2.boxPoints(cv2.minAreaRect(blob)).astype(np.float32)
+    sums = box.sum(axis=1)
+    diffs = np.diff(box, axis=1).ravel()
+    ordered = np.array([
+        box[np.argmin(sums)],   # top-left
+        box[np.argmin(diffs)],  # top-right
+        box[np.argmax(sums)],   # bottom-right
+        box[np.argmax(diffs)],  # bottom-left
+    ], dtype=np.float32)
+    tl, tr, br, bl = ordered
+    output_width = max(
+        1, int(round(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl))))
+    )
+    output_height = max(
+        1, int(round(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl))))
+    )
+    destination = np.array([
+        [0, 0],
+        [output_width - 1, 0],
+        [output_width - 1, output_height - 1],
+        [0, output_height - 1],
+    ], dtype=np.float32)
+    transform = cv2.getPerspectiveTransform(ordered, destination)
+    rectified = cv2.warpPerspective(
+        color,
+        transform,
+        (output_width, output_height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    if rectified.shape[0] > rectified.shape[1]:
+        rectified = cv2.rotate(rectified, cv2.ROTATE_90_CLOCKWISE)
+
+    # PaddleOCR benefits from larger characters and normalized local contrast.
+    text_gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(text_gray)
+    enhanced = cv2.resize(
+        enhanced, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC
+    )
+    blurred = cv2.GaussianBlur(enhanced, (0, 0), 1.2)
+    enhanced = cv2.addWeighted(enhanced, 1.6, blurred, -0.6, 0)
+    border = max(20, int(round(min(enhanced.shape[:2]) * 0.08)))
+    rotated = cv2.copyMakeBorder(
+        enhanced,
+        border, border, border, border,
+        cv2.BORDER_CONSTANT,
+        value=255,
+    )
     cv2.imwrite(ROTATED_OUTPUT, rotated)
 
     rotated_180 = cv2.rotate(rotated, cv2.ROTATE_180)

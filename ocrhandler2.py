@@ -54,7 +54,9 @@ def read_detection_file():
 def run_ocr():
     image_path = read_detection_file()
     print(f"Running OCR on image: {image_path}")
-    cmd = ["/usr/bin/python3", OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
+    # Reuse the system interpreter selected by master2.py. beltocr2.py launches
+    # the accelerated OCR subprocess inside the dedicated Hailo Apps environment.
+    cmd = [sys.executable, OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
     print("▶", " ".join(cmd))
     result = subprocess.run(cmd)
     if result.returncode != 0:

@@ -18,10 +18,9 @@ DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 # Optional: tune between-frames nudge in one place (both CV + Arm respect this via env)
 EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
 
-# Hailo venv python (used for chipvision3 which needs hailo/gstreamer)
-# HAILO_PYTHON = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/python3"
-# Attempt to change python to 3.13.5 aka current python in venv, but fallback to "python3" if that path doesn't exist (e.g., if venv was recreated and python version changed)
-HAILO_PYTHON = "/usr/bin/python3"
+# Raspberry Pi's system Python provides the matching HailoRT 4.23 bindings.
+# beltocr2.py enters the separate Hailo Apps environment for accelerated OCR.
+HAILO_PYTHON = os.environ.get("HAILO_PYTHON", "/usr/bin/python3")
 
 def run_ui_chip_request():
     print("\n=== UI: request input (part/circuit, large-part toggle) ===")

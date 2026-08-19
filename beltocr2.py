@@ -201,24 +201,11 @@ def prepare_hailo_ocr_image(image_path):
     if gray is None:
         raise ValueError(f"Could not load OCR input image: {image_path}")
 
-    # Remove the surrounding white area and retain the chip body. Closing the
-    # mask prevents bright lettering from splitting the chip contour.
-    foreground = cv2.threshold(gray, 245, 255, cv2.THRESH_BINARY_INV)[1]
-    foreground = cv2.morphologyEx(
-        foreground,
-        cv2.MORPH_CLOSE,
-        np.ones((5, 5), np.uint8),
-        iterations=2,
-    )
-    contours, _ = cv2.findContours(
-        foreground, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    if contours:
-        x, y, width, height = cv2.boundingRect(max(contours, key=cv2.contourArea))
-        gray = gray[y:y + height, x:x + width]
-
-    # IC markings are normally bright on a dark package. PaddleOCR's detector
-    # is more reliable here after inversion to dark characters on a light body.
+    # Do not contour-crop here. The source is already the detector's complete
+    # chip crop, and a threshold contour can easily select only a logo, a line
+    # of lettering, or a shadow and permanently discard the actual part text.
+    # IC markings are normally bright on a dark package, so invert them to the
+    # dark-on-light form preferred by PaddleOCR while preserving every pixel.
     prepared = cv2.bitwise_not(gray)
     prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(prepared)
 
@@ -370,14 +357,33 @@ def mask_and_rotate(original_image):
             x, y, w, h = cv2.boundingRect(contour)
             center = np.array([x + w / 2.0, y + h / 2.0])
             center_distance = np.linalg.norm(center - image_center)
-            # Prefer a large, central contour rather than a letter or a strip
-            # of background touching one edge of the crop.
-            score = contour_area / (1.0 + center_distance)
+            rect = cv2.minAreaRect(contour)
+            rect_area = max(1.0, rect[1][0] * rect[1][1])
+            rectangularity = min(1.0, contour_area / rect_area)
+            diagonal = max(1.0, np.linalg.norm(image_center))
+            centrality = max(0.1, 1.0 - center_distance / diagonal)
+            # A chip is normally the largest central, solid rectangular object.
+            # Rectangularity prevents a large irregular background patch from
+            # winning merely because it has more pixels.
+            score = contour_area * rectangularity * centrality
             candidates.append((score, contour))
 
-    if not candidates:
-        raise ValueError(f"Could not find a chip-sized contour in: {original_image}")
-    blob = max(candidates, key=lambda item: item[0])[1]
+    if candidates:
+        blob = max(candidates, key=lambda item: item[0])[1]
+    else:
+        # The object detector already supplied a chip crop. If segmentation is
+        # uncertain, retaining that entire crop is safer than stopping OCR or
+        # selecting a character-shaped contour.
+        inset = max(1, int(round(min(gray.shape[:2]) * 0.01)))
+        blob = np.array([[
+            [inset, inset],
+            [gray.shape[1] - inset - 1, inset],
+            [gray.shape[1] - inset - 1, gray.shape[0] - inset - 1],
+            [inset, gray.shape[0] - inset - 1],
+        ]], dtype=np.int32)
+        ocr_print(
+            f"Warning: chip contour was uncertain; using full crop for {original_image}"
+        )
 
     mask = np.zeros_like(gray)
     cv2.drawContours(mask, [blob], -1, 255, thickness=-1)
@@ -390,56 +396,35 @@ def mask_and_rotate(original_image):
     if wb < hb:
         angle += 90
 
-    # Rectify all four corners rather than rotating within the old canvas.
-    # This corrects perspective and prevents the chip corners from being cut.
-    box = cv2.boxPoints(cv2.minAreaRect(blob)).astype(np.float32)
-    sums = box.sum(axis=1)
-    diffs = np.diff(box, axis=1).ravel()
-    ordered = np.array([
-        box[np.argmin(sums)],   # top-left
-        box[np.argmin(diffs)],  # top-right
-        box[np.argmax(sums)],   # bottom-right
-        box[np.argmax(diffs)],  # bottom-left
-    ], dtype=np.float32)
-    tl, tr, br, bl = ordered
-    output_width = max(
-        1, int(round(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl))))
-    )
-    output_height = max(
-        1, int(round(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl))))
-    )
-    destination = np.array([
-        [0, 0],
-        [output_width - 1, 0],
-        [output_width - 1, output_height - 1],
-        [0, output_height - 1],
-    ], dtype=np.float32)
-    transform = cv2.getPerspectiveTransform(ordered, destination)
-    rectified = cv2.warpPerspective(
+    # Preserve the detector's complete crop and use the contour only for its
+    # angle. Perspective-cropping to an imperfect contour can remove readable
+    # text. Expand the rotation canvas so corners are never clipped.
+    image_h, image_w = color.shape[:2]
+    rotation_center = (image_w / 2.0, image_h / 2.0)
+    rotation = cv2.getRotationMatrix2D(rotation_center, angle, 1.0)
+    abs_cos = abs(rotation[0, 0])
+    abs_sin = abs(rotation[0, 1])
+    rotated_w = int(round(image_h * abs_sin + image_w * abs_cos))
+    rotated_h = int(round(image_h * abs_cos + image_w * abs_sin))
+    rotation[0, 2] += rotated_w / 2.0 - rotation_center[0]
+    rotation[1, 2] += rotated_h / 2.0 - rotation_center[1]
+    rotated = cv2.warpAffine(
         color,
-        transform,
-        (output_width, output_height),
+        rotation,
+        (rotated_w, rotated_h),
         flags=cv2.INTER_CUBIC,
-        borderMode=cv2.BORDER_REPLICATE,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
     )
-    if rectified.shape[0] > rectified.shape[1]:
-        rectified = cv2.rotate(rectified, cv2.ROTATE_90_CLOCKWISE)
+    if rotated.shape[0] > rotated.shape[1]:
+        rotated = cv2.rotate(rotated, cv2.ROTATE_90_CLOCKWISE)
 
-    # PaddleOCR benefits from larger characters and normalized local contrast.
-    text_gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(text_gray)
-    enhanced = cv2.resize(
-        enhanced, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC
-    )
-    blurred = cv2.GaussianBlur(enhanced, (0, 0), 1.2)
-    enhanced = cv2.addWeighted(enhanced, 1.6, blurred, -0.6, 0)
-    border = max(20, int(round(min(enhanced.shape[:2]) * 0.08)))
+    # Enhancement, inversion, resizing, and final padding happen once in
+    # prepare_hailo_ocr_image(). Keep this image close to the camera data.
+    border = max(8, int(round(min(rotated.shape[:2]) * 0.04)))
     rotated = cv2.copyMakeBorder(
-        enhanced,
-        border, border, border, border,
-        cv2.BORDER_CONSTANT,
-        value=255,
+        rotated, border, border, border, border,
+        cv2.BORDER_CONSTANT, value=(255, 255, 255)
     )
     cv2.imwrite(ROTATED_OUTPUT, rotated)
 

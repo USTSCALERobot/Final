@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+########################################################################
+# Document: master2.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
 import subprocess
 import sys
 import os
@@ -27,8 +36,8 @@ def run_ui_chip_request():
     print("\n=== UI: request input (part/circuit, large-part toggle) ===")
     result = subprocess.run(["python3", UI_HANDLER])
     if result.returncode != 0:
-        sys.exit(f"❌ UI Chip Request failed with return code {result.returncode}")
-    print("✅ UI complete.")
+        sys.exit(f"Failed: UI Chip Request failed with return code {result.returncode}")
+    print("Sucess: UI complete.")
 
 # This is the chip vision handler and trigger for the 
 # chip vision execution 
@@ -67,7 +76,7 @@ def run_chip_vision_handler():
         # -2 = SIGINT, -15 = SIGTERM — both are acceptable interrupt exits
         print(f"Warning: Chip Vision Handler exited with code {result.returncode} (continuing)")
 
-    print("✅ Vision completed.")
+    print("Passed: Vision completed.")
 
 def run_ocr_handler():
     print("\n=== OCR: parse frames, OCR crops, append results ===")
@@ -92,8 +101,8 @@ def run_arm_handler():
     env["EXTRA_RUN_SEC"] = EXTRA_RUN_SEC
     result = subprocess.run(["python3", ARM_HANDLER], env=env)
     if result.returncode != 0:
-        sys.exit(f"❌ ARM Handler failed with return code {result.returncode}")
-    print("✅ ARM sequence completed.")
+        sys.exit(f"Failure: ARM Handler failed with return code {result.returncode}")
+    print("Passed: ARM sequence completed.")
 
 def _file_has_frames(path):
     try:
@@ -116,7 +125,7 @@ def main():
     ok, status = _file_has_frames(DETECTION_FILE)
     if not ok:
         sys.exit("Failure: latest_detection.txt not found after vision stage.")
-    print(f"ℹ️ Detection file status: {status}")
+    print(f"INFO: Detection file status: {status}")
     print("Starting OCR")
 
     # 3) OCR (reads FRAME sections, appends OCR blocks that include 'Frame: N')

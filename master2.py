@@ -18,10 +18,9 @@ DETECTION_FILE = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 # Optional: tune between-frames nudge in one place (both CV + Arm respect this via env)
 EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
 
-# Hailo venv python (used for chipvision3 which needs hailo/gstreamer)
-# HAILO_PYTHON = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/python3"
-# Attempt to change python to 3.13.5 aka current python in venv, but fallback to "python3" if that path doesn't exist (e.g., if venv was recreated and python version changed)
-HAILO_PYTHON = "/usr/bin/python3"
+# Raspberry Pi's system Python provides the matching HailoRT 4.23 bindings.
+# beltocr2.py enters the separate Hailo Apps environment for accelerated OCR.
+HAILO_PYTHON = os.environ.get("HAILO_PYTHON", "/usr/bin/python3")
 
 def run_ui_chip_request():
     print("\n=== UI: request input (part/circuit, large-part toggle) ===")
@@ -30,16 +29,18 @@ def run_ui_chip_request():
         sys.exit(f"❌ UI Chip Request failed with return code {result.returncode}")
     print("✅ UI complete.")
 
+# This is the chip vision handler and trigger for the 
+# chip vision execution 
 def run_chip_vision_handler():
     print("\n=== Vision: detection + crops (Frame 1, optional Frame 2) ===")
-
+    
+    # Setup environment variables for the chip vision handler
     env = os.environ.copy()
     env["EXTRA_RUN_SEC"] = EXTRA_RUN_SEC
 
-    # changed from chat suggestion
     env["TAPPAS_POST_PROC_DIR"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes"
     env["LD_LIBRARY_PATH"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes:" + env.get("LD_LIBRARY_PATH", "")
-
+    # This is the trigger for the chip vision handler after enviorment setup 
     try:
         #Pass explicit argument to ensure the AI uses the custom model and custom lables
         # if '--labels-json' is missing the YOLO post-processor fails to map custom classes. 
@@ -55,36 +56,34 @@ def run_chip_vision_handler():
             timeout=300  # 5-minute hard ceiling; adjust if your belt run is longer
         )
     except subprocess.TimeoutExpired:
-        print("⏱️ Vision stage timed out after 5 minutes — killing subprocess.")
+        print("Warning: Vision stage timed out after 5 minutes — killing subprocess.")
         return  # let the detection-file check below handle the failure gracefully
     except KeyboardInterrupt:
-        print("🛑 Vision stage interrupted by user.")
+        print("Warning: Vision stage interrupted by user.")
         raise  # re-raise so main() can exit cleanly
 
     if result.returncode not in (0, -2, -15):
         # -2 = SIGINT, -15 = SIGTERM — both are acceptable interrupt exits
-        print(f"⚠️ Chip Vision Handler exited with code {result.returncode} (continuing)")
+        print(f"Warning: Chip Vision Handler exited with code {result.returncode} (continuing)")
 
     print("✅ Vision completed.")
 
 def run_ocr_handler():
     print("\n=== OCR: parse frames, OCR crops, append results ===")
     result = subprocess.run([HAILO_PYTHON, OCR_HANDLER])
-    # result = subprocess.run(["python3", OCR_HANDLER])
     if result.returncode != 0:
-        sys.exit(f"❌ OCR Handler failed with return code {result.returncode}")
-    print("✅ OCR completed.")
+        sys.exit(f"Failure: OCR Handler failed with return code {result.returncode}")
+    print("Passed: OCR completed.")
 
 def run_motor2_handler(seconds=None):
     print("\n=== Belt: move parts to arm station ===")
-#    cmd = ["python3", MOTOR2_HANDLER]
     cmd = [HAILO_PYTHON, MOTOR2_HANDLER]
     if seconds is not None:
         cmd += ["--seconds", str(seconds)]
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        sys.exit(f"❌ Motor-to-Arm failed with return code {result.returncode}")
-    print("✅ Belt run completed.")
+        sys.exit(f"Failure: Motor-to-Arm failed with return code {result.returncode}")
+    print("Passed: Belt run completed.")
 
 def run_arm_handler():
     print("\n=== ARM: pick frame 1 → 1s belt nudge → pick frame 2; drop-offs via Circuits.txt ===")
@@ -115,7 +114,7 @@ def main():
 
     ok, status = _file_has_frames(DETECTION_FILE)
     if not ok:
-        sys.exit("❌ latest_detection.txt not found after vision stage.")
+        sys.exit("Failure: latest_detection.txt not found after vision stage.")
     print(f"ℹ️ Detection file status: {status}")
     print("Starting OCR")
 

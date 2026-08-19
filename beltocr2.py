@@ -49,6 +49,14 @@ OCR_ORIENTATION_SKIP_SCORE = float(
     os.environ.get("OCR_ORIENTATION_SKIP_SCORE", "0.45")
 )
 
+CYAN = "\033[96m"
+RESET = "\033[0m"
+
+
+def ocr_print(message):
+    """Print a consistently tagged OCR console message."""
+    print(f"{CYAN}[OCR]{RESET} {message}")
+
 # --- Known Parts Fallback ---
 KNOWN_PARTS = [
     "P8436 DM74S240N", "SN74LS5IN M18034",
@@ -325,11 +333,11 @@ def run_hailo_ocr(image_path):
     texts = [text.strip() for text in texts if text.strip()]
     texts = list(dict.fromkeys(texts))  # imagefreeze may report the same line per frame
     if not texts:
-        print(f"Warning: Hailo OCR found no text in {image_path}")
+        ocr_print(f"Warning: Hailo OCR found no text in {image_path}")
     text = " ".join(texts)
     total_seconds = time.perf_counter() - total_started
-    print(
-        f"[OCR timing] {os.path.basename(image_path)}: "
+    ocr_print(
+        f"Timing {os.path.basename(image_path)}: "
         f"preprocess={preprocess_seconds:.3f}s, "
         f"hailo={inference_seconds:.3f}s, total={total_seconds:.3f}s"
     )
@@ -378,8 +386,8 @@ def run_ocr_and_select():
     text0, _ = run_hailo_ocr(ROTATED_OUTPUT)
     _, r0 = best_part_match(text0)
     if text0 and r0 >= OCR_ORIENTATION_SKIP_SCORE:
-        print(
-            f"[OCR timing] skipped 180-degree pass; first-pass match={r0:.2f}"
+        ocr_print(
+            f"Skipped 180-degree pass; first-pass match={r0:.2f}"
         )
         return ROTATED_OUTPUT, text0
 
@@ -387,8 +395,8 @@ def run_ocr_and_select():
     _, r180 = best_part_match(text180)
     selected = ((ROTATED_OUTPUT_180, text180) if r180 > r0
                 else (ROTATED_OUTPUT, text0))
-    print(
-        f"[OCR timing] both orientations: "
+    ocr_print(
+        f"Both orientations completed in "
         f"{time.perf_counter() - orientation_started:.3f}s"
     )
     return selected
@@ -429,6 +437,9 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
     match_disp = best_part if best_part and best_part.upper() in parts_list else "None"
     y_offset_cm = calculate_distance(time_offset)
 
+    if raw_text and best_part:
+        ocr_print(f"Detected chip: {best_part} (match ratio={score:.2f})")
+
     # Append block (with Frame: N)
     with open(DETECTION_FILE, "a") as f:
         f.write(f"Frame: {frame_no}\n")
@@ -444,7 +455,7 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
         f.write(f"Match parts for mapping: {match_disp}\n")
         f.write("-----------------------------------\n\n")
 
-    print(f" Detection file updated for Frame {frame_no}, crop {crop_index}.")
+    ocr_print(f"Detection file updated for Frame {frame_no}, crop {crop_index}.")
 
 # ===== Main now processes by FRAME (or inferred frames) =====
 def main():
@@ -453,7 +464,7 @@ def main():
     # Parse the detection file (supports FRAME= headers or legacy format)
     frames = parse_detection_frames(DETECTION_FILE)
     if not frames:
-        print("Warning: No crops found in detection file; nothing to OCR.")
+        ocr_print("Warning: No crops found in detection file; nothing to OCR.")
         return
 
     # CLEAR THE FILE! We only want to save the final OCR results, 

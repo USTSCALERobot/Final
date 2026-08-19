@@ -16,6 +16,7 @@ import numpy as np
 from difflib import SequenceMatcher
 import re
 import math
+import time
 from typing import Dict, List, Tuple
 
 # --- Paths & Files ---
@@ -41,6 +42,7 @@ HAILO_OCR_EXECUTABLE = os.environ.get(
 )
 HAILO_ARCH = os.environ.get("HAILO_ARCH", "hailo8l")
 HAILO_OCR_TIMEOUT = float(os.environ.get("HAILO_OCR_TIMEOUT", "120"))
+HAILO_OCR_INPUT = os.path.join(SAVE_FOLDER, "hailo_ocr_input.png")
 
 # --- Known Parts Fallback ---
 KNOWN_PARTS = [
@@ -180,14 +182,63 @@ def best_part_match(ocr_text, known_parts=KNOWN_PARTS):
             best_score, best_part = score, part
     return best_part, best_score
 
+def prepare_hailo_ocr_image(image_path):
+    """Create a large, dark-text-on-light image for PaddleOCR detection."""
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None:
+        raise ValueError(f"Could not load OCR input image: {image_path}")
+
+    # Remove the surrounding white area and retain the chip body. Closing the
+    # mask prevents bright lettering from splitting the chip contour.
+    foreground = cv2.threshold(gray, 245, 255, cv2.THRESH_BINARY_INV)[1]
+    foreground = cv2.morphologyEx(
+        foreground,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), np.uint8),
+        iterations=2,
+    )
+    contours, _ = cv2.findContours(
+        foreground, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if contours:
+        x, y, width, height = cv2.boundingRect(max(contours, key=cv2.contourArea))
+        gray = gray[y:y + height, x:x + width]
+
+    # IC markings are normally bright on a dark package. PaddleOCR's detector
+    # is more reliable here after inversion to dark characters on a light body.
+    prepared = cv2.bitwise_not(gray)
+    prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(prepared)
+
+    target_height = 320
+    scale = max(1.0, target_height / max(1, prepared.shape[0]))
+    prepared = cv2.resize(
+        prepared,
+        None,
+        fx=scale,
+        fy=scale,
+        interpolation=cv2.INTER_LANCZOS4,
+    )
+    prepared = cv2.copyMakeBorder(
+        prepared, 64, 64, 64, 64, cv2.BORDER_CONSTANT, value=255
+    )
+    if not cv2.imwrite(HAILO_OCR_INPUT, prepared):
+        raise RuntimeError(f"Could not write prepared OCR image: {HAILO_OCR_INPUT}")
+    return HAILO_OCR_INPUT
+
+
 def run_hailo_ocr(image_path):
     """Run Hailo's PaddleOCR pipeline and return its recognized text lines."""
+    total_started = time.perf_counter()
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"OCR input image not found: {image_path}")
     if not os.path.isfile(HAILO_APPS_SETUP):
         raise FileNotFoundError(f"Hailo Apps setup script not found: {HAILO_APPS_SETUP}")
     if not os.path.isfile(HAILO_OCR_EXECUTABLE):
         raise FileNotFoundError(f"hailo-ocr executable not found: {HAILO_OCR_EXECUTABLE}")
+
+    preprocess_started = time.perf_counter()
+    prepared_image_path = prepare_hailo_ocr_image(image_path)
+    preprocess_seconds = time.perf_counter() - preprocess_started
 
     # Arguments after argv[0] are passed positionally so paths never need shell
     # interpolation or manual quoting.
@@ -200,8 +251,9 @@ def run_hailo_ocr(image_path):
     )
     cmd = [
         "/bin/bash", "-lc", shell_script, "hailo-ocr-runner",
-        HAILO_APPS_SETUP, HAILO_OCR_EXECUTABLE, HAILO_ARCH, image_path,
+        HAILO_APPS_SETUP, HAILO_OCR_EXECUTABLE, HAILO_ARCH, prepared_image_path,
     ]
+    inference_started = time.perf_counter()
     try:
         result = subprocess.run(
             cmd,
@@ -213,6 +265,7 @@ def run_hailo_ocr(image_path):
         raise RuntimeError(
             f"Hailo OCR timed out after {HAILO_OCR_TIMEOUT:.0f}s for {image_path}"
         ) from exc
+    inference_seconds = time.perf_counter() - inference_started
 
     combined_output = "\n".join((result.stdout, result.stderr))
     if result.returncode != 0:
@@ -226,9 +279,16 @@ def run_hailo_ocr(image_path):
         combined_output,
     )
     texts = [text.strip() for text in texts if text.strip()]
+    texts = list(dict.fromkeys(texts))  # imagefreeze may report the same line per frame
     if not texts:
         print(f"Warning: Hailo OCR found no text in {image_path}")
     text = " ".join(texts)
+    total_seconds = time.perf_counter() - total_started
+    print(
+        f"[OCR timing] {os.path.basename(image_path)}: "
+        f"preprocess={preprocess_seconds:.3f}s, "
+        f"hailo={inference_seconds:.3f}s, total={total_seconds:.3f}s"
+    )
     return text, len(text)
 
 def mask_and_rotate(original_image):
@@ -270,13 +330,18 @@ def mask_and_rotate(original_image):
     return angle, wb, hb
 
 def run_ocr_and_select():
+    orientation_started = time.perf_counter()
     text0, _ = run_hailo_ocr(ROTATED_OUTPUT)
     text180, _ = run_hailo_ocr(ROTATED_OUTPUT_180)
     _, r0 = best_part_match(text0)
     _, r180 = best_part_match(text180)
-    if r180 > r0:
-        return ROTATED_OUTPUT_180, text180
-    return ROTATED_OUTPUT, text0
+    selected = ((ROTATED_OUTPUT_180, text180) if r180 > r0
+                else (ROTATED_OUTPUT, text0))
+    print(
+        f"[OCR timing] both orientations: "
+        f"{time.perf_counter() - orientation_started:.3f}s"
+    )
+    return selected
 
 def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)

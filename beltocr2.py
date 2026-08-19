@@ -1,5 +1,5 @@
 ########################################################################
-# Document: Motor_Drive_After_OCR2.py
+# Document: beltocr2.py
 # Project: SCALE Automated Vision System
 # Institution: University of St. Thomas
 # Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 

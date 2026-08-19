@@ -1,3 +1,13 @@
+########################################################################
+# Document: Pick_coord_from_crop_txt3.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
 import kinematics as kin
 import numpy as np
 import phx
@@ -6,6 +16,7 @@ import math
 import re
 import gpiod
 import os
+
 # Turn on Phoenix system and initialize resting position
 phx.turn_on()
 phx.rest_position()
@@ -21,24 +32,55 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
-
-# def transform_coordinates(x1, y1):
-
 #     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
-#     x2 = x1 * (22 - 15) + 14.25
-#     y2 = y1 * (-10 - (10)) + (10.5)
-#     # x2 = x1 * 7  + 15
-#     # y2 = y1 * (-10 - (10)) + (10)
-#     return x2, y2
 def transform_coordinates(x1, y1):
     x_close = 15
     x_far = 22
     y_right = -10
     y_left = 10
+    x_ref = 18.5        # distance traveled to get exact center of the chip 
+    y_ref = 0
+    
     x2 = x1 * (x_far - x_close) + x_close 
-    # Subtract 10cm because the belt runs an extra 4.46s (moving chips 10cm further into negative Y space)
-    y2 = y1 * (y_right - y_left) + y_left - 5.15        # the extra .15 is an additional shift from guess and check
-    return x2, y2
+    # The -3 is the chips moving an additional 3cm further down the belt 
+    # TODO: figure out how to pass the offset value from Motor_Drive_After_OCR2.py
+    # This performs the linear transform for the coordinate system from the camera pixels 
+    y2 = y1 * (y_right - y_left) + y_left - 4.0     # the extra .075 is an additional shift from observed differences in the pickup 
+
+    # Below this are specific calibrations and micro-adjustments for better alignment
+
+    dif_x = x2 - x_ref  # Difference from center point
+    dif_y = y2 - y_ref  # Difference from center point y-direction 
+
+    # Coeffs for X-direction micro-adjustments ...forward and backward 
+    k1_x = 0.03
+    k2_x = 0.3
+    # Coeffs for Y-direction micro-adjustments ...side to side sway 
+    k1_y = 0.0
+    k2_y = 0.0 
+
+    # 2nd degree offest adjustment equation 
+    x_mAdjust = dif_x + (dif_x * k1_x) + (dif_x * abs(dif_x) * k2_x)
+    y_mAdjust = dif_y + (dif_y * k1_y) + (dif_y * abs(dif_y) * k2_y)
+    # simple output summation to find correct pickup placement on the x-direction 
+    x_out = x_ref + x_mAdjust
+    y_out = y_ref + y_mAdjust
+
+    # saftey net ceiling and floor for the adjustments in 
+    # the x-Direction so that it doesn't overreach or underreach
+    if x_out > x_far: 
+        x_out = x_far
+    if x_out < x_close: 
+        x_out = x_close
+    # saftey net for the side to side action such that the arm doesn't 
+    # overreach and connect with the camera mount/assembly also doesn't
+    # try to pickup chips that are not on the belt
+    if y_out < -11:
+        y_out = -11
+    if y_out > 6:
+        y_out = 6
+
+    return x_out, y_out
 
 CIRCUITS_FILE = "/home/scalepi/Desktop/savephototest/Circuits.txt"
 PARTS_FILE = "/home/scalepi/Desktop/savephototest/Parts.txt"  # NOTE File still needs to be fully updated/created
@@ -89,20 +131,12 @@ def get_detections_from_file(filename):
 
 
 def calculate_angle(x, y):
-    # if abs(y) > abs(x):
-    #     angle_rad = math.atan2(x, y)
-    #     angle_rad -= (math.pi) / 4
-    #     angle_deg = math.degrees(angle_rad) + 45
+
     theta_0 = math.degrees(math.atan2(y,x))
     angle_deg = 180 + (theta_0 * 1.20)   #1.2 scale to compensate for the servo 300 degree 360/300 1.2
     if angle_deg < 0:
         angle_deg += 360
-    # else:
-    #     angle_rad = math.atan2(y, x)
-    #     angle_rad -= math.pi
-    #     angle_deg = math.degrees(angle_rad)
-    #     if angle_deg < 0:
-    #         angle_deg += 360
+
     return angle_deg
 
 
@@ -151,7 +185,7 @@ def set_gripper(position):
 
 
 def pick_up(x, y, additional_angle=0):
-    pickup_pos = [x, y, 20.75]      # 21 is the height of the pickuintermedp position  
+    pickup_pos = [x, y, 20.75]      # 3rd value is the height of the pickup position  
     theta0_4 = -90
     print(f"Picking up from position: {pickup_pos}, with theta4: {theta0_4}")
 
@@ -169,7 +203,7 @@ def pick_up(x, y, additional_angle=0):
 
     time.sleep(1.5) # freeze to check positioning
     print(str(intermediate_pos), str(theta0_4))
-# adjust intermediate_pos so that arm is hanging straight down at z=23
+    # adjust intermediate_pos so that arm is hanging straight down at z=23
     phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 
     # print(f"Moving down to pick up position (X, Y, 20).")
     go_to_pos(pickup_pos, theta0_4)
@@ -185,53 +219,33 @@ def pick_up(x, y, additional_angle=0):
     go_to_pos(fixed_position, 0)
 
 
-def calculate_drop_bearing(x, y):
-    """Compute the raw bearing angle for drop-off, based purely on the (x, y) offset from the base.
-    Uses absolute values so that drop quadrants always yield a positive bearing between 0-90°.
-    """
-    return math.degrees(math.atan2(abs(y), abs(x)))
-
 
 # --- Updated drop_off() with raw-based adjustment ---
 def drop_off(x, y, z, desired_angle):
-    """ Drop at (x, y, z):
-    1) raw = calculate_drop_bearing(x, y)
-    2) zero_offset = raw - 90
-    3) delta = zero_offset + desired_angle
-    4) if x >= 0: new_angle = raw - delta
-       else: new_angle = raw + delta
-    5) normalize, convert to steps, set_gripper
-    6) move, open, and return home
+    """ Drop at (x, y, z) with specific angle:
+    1) calculate arm base angle
+    2) counter-rotate and apply base 
+    3) 1.2 scaling found from datasheet servo mapping
+    4) move, open, and return home
     """
     drop_off_pos = [x, y, z]
     theta0_4 = -95
 
-    # Step 1: raw bearing
-    raw = calculate_drop_bearing(x, y)
-    print(f"Raw drop bearing: {raw:.2f}°")
+    # Step 1: calculate base angle
+    theta_0 = math.degrees(math.atan2(y,x))
+    print(f"arm base angle (theta_0): {theta_0:.2f}")
 
-    # Step 2: baseline offset
-    zero_offset = raw - 90
+    # Step 2-3: counter rotate and apply scaling
+    # parrallel to x-axis would be 0-degrees
+    new_angle = 180 + ((theta_0 + desired_angle)* 1.2)
 
-    # Step 3: compute delta
-    delta = zero_offset + desired_angle
-    print(f"Computed delta: zero_offset({zero_offset:.2f}) + desired({desired_angle:.2f}) = {delta:.2f}°")
-
-    # Step 4: apply conditional sign
-    if x <= 0:
-        new_angle = delta + raw
-        print(f"x>=0: new_angle = raw({raw:.2f}) - delta({delta:.2f}) = {new_angle:.2f}°")
-    else:
-        new_angle = raw - delta
-        print(f"x<0: new_angle = raw({raw:.2f}) + delta({delta:.2f}) = {new_angle:.2f}°")
-
-    # Step 5: normalize and set
+    # normalize and set
     new_angle %= 360
     motor_pos = angle_to_motor_steps(new_angle)
     print(f"Setting gripper to {new_angle:.2f}° (motor pos {motor_pos})")
     set_gripper(motor_pos)
 
-    # Step 6: perform motion
+    # Perform motion
     print(f"Dropping off at {drop_off_pos}, base θ₀₋₄ = {theta0_4}")
     move_to_position_with_z_adjustment(drop_off_pos, theta0_4)
     phx.open_gripper2()
@@ -247,17 +261,6 @@ def drop_off(x, y, z, desired_angle):
     phx.rest_position()
 
 
-
-
-# def none_belt_run():
-#     #while(1):
-#     led_line.set_value(1)
-#     print("ON")
-#     time.sleep(4.25)intermed
-#     led_line.set_value(0)
-#     print("OFF")
-#     time.sleep(1)  # Sleep for one second
-#     led_line.release()
 def none_belt_run():
     try:
         led_request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
@@ -274,16 +277,155 @@ def none_belt_run():
         except Exception:
             pass
 
+'''
+original selection logic: 
+    sort detections from 'NONE' detections and remove 'NONE' chips first into the empty
+    bin at the end of the conveyer belt. then remove recognized chips to there respective 
+    pre-mapped location
+'''
+def selection_option1(circuits,detections):
+    for i in range(len(detections)):    # This will loop through all the detections
+    
+            # Case 1: if all parts are None → just pick first (only None parts exist)
+            all_none = all(d[4] == "None" for d in detections)
+    
+            if all_none:
+                chosen = detections[0]  # just pick up
+            else:
+                # Case 2: if part_name == None → use last detection with None
+                none_candidates = [d for d in detections if d[4] == "None"]
+                if none_candidates:
+                    chosen = none_candidates[-1]  # last None
+                else:
+                    # Case 3: otherwise, take the first with a valid part name
+                    valid_candidates = [d for d in detections if d[4] != "None"]
+                    chosen = valid_candidates[0]
+            # After selecting a detection, remove it from list and process next on following iteration
+            detections.remove(chosen)       
+            
+            # --- Execute chosen detection ---
+            x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm, area = chosen
+            tx, ty = transform_coordinates(x_raw, y_raw)
+    
+            # Apply pre-calculated physical offset for trailing chips
+            ty += y_offset_cm
+    
+            if abs(angle) < 1.0:
+                pickup_offset = 0
+            elif angle > 90:
+                pickup_offset = angle - 180
+            else:
+                pickup_offset = angle
+    
+            print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+            pick_up(tx, ty, pickup_offset)
+            phx.rest_position_closed()
+    
+            # --- Drop-off ---
+            if part_name == "None" or part_circuit is None:
+                dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 17 for now this is supposed to be droppoff location 
+                print("Dropping off to None Bin")
+                drop_off(dx, dy, dz, desired_angle)
+            else:
+                dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
+                print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
+                drop_off(dx, dy, dz, desired_angle)
+            
+            print("Remaining detections to process: ", len(detections))
+
+'''
+FIFO selection logic:
+    This is a simple first in first out pickup and dropoff selection algorithm. It does 
+    not care about whether a chip was regognized or not 
+'''
+def selection_option2(detections):
+    for i in range(len(detections)):    # This will loop through all the detections
+            
+            chosen = detections[0]  
+
+            # After selecting a detection, remove it from list and process next on following iteration
+            detections.remove(chosen)       
+            
+            # --- Execute chosen detection ---
+            x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm, area = chosen
+            tx, ty = transform_coordinates(x_raw, y_raw)
+    
+            # Apply pre-calculated physical offset for trailing chips
+            ty += y_offset_cm
+    
+            if abs(angle) < 1.0:
+                pickup_offset = 0
+            elif angle > 90:
+                pickup_offset = angle - 180
+            else:
+                pickup_offset = angle
+    
+            print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+            pick_up(tx, ty, pickup_offset)
+            phx.rest_position_closed()
+    
+            # --- Drop-off ---
+            # Drops of in a linear arangment along the x axis assuming a 1cm width
+            # and coordinates relative to center of chip. 
+            # we should see a 3.5 cm gap from center to center we subtract in the x-direction
+            dx, dy, dz, desired_angle = (5 - (i * 3.5)), -18, 12.5, 90    #raised to height of 13 for now  
+            print("Dropping off chip:",(i+1))
+            drop_off(dx, dy, dz, desired_angle)
+            
+            print("Remaining detections to process: ", len(detections))
+
+'''
+Size-by-Area Selection logic: 
+    This will select detections based on their physical size and sort them from smallest 
+    to largest. 
+'''
+def selection_option3(detections):
+    # Sort detections by Area lambda function sorts by the Area's index value, 6
+    detections.sort(key=lambda x: x[6])
+    for i in range(len(detections)):
+        
+        chosen = detections[0]
+        # After selecting a detection, remove it from list and process next on following iteration
+        detections.remove(chosen)       
+            
+        # --- Execute chosen detection ---
+        x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm, area = chosen
+        tx, ty = transform_coordinates(x_raw, y_raw)
+    
+        # Apply pre-calculated physical offset for trailing chips
+        ty += y_offset_cm
+    
+        if abs(angle) < 1.0:
+            pickup_offset = 0
+        elif angle > 90:
+            pickup_offset = angle - 180
+        else:
+            pickup_offset = angle
+    
+        print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
+        pick_up(tx, ty, pickup_offset)
+        phx.rest_position_closed()
+    
+        # --- Drop-off ---
+        # Drops of in a linear arangment along the x axis assuming a 1cm width
+        # and coordinates relative to center of chip. 
+        # we should see a 3.5 cm gap from center to center we subtract in the x-direction
+        dx, dy, dz, desired_angle = 5 - (i * 3.5), -18, 12.5, 90    #raised to height of 15 for now  
+        print("Dropping off chip:",(i+1))
+        drop_off(dx, dy, dz, desired_angle)
+    
+        print("Remaining detections to process: ", len(detections))
+        
+
 
 # --- Main Loop ---
 def main():
     filename = "/home/scalepi/Desktop/savephototest/latest_detection.txt"
-   # circuits = load_circuits(CIRCUITS_FILE)
     circuits = {}
     if os.path.exists(CIRCUITS_FILE):
         circuits = load_circuits(CIRCUITS_FILE)
     else:
-        print(f"⚠️ Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
+        print(f"Warning: Circuits file not found, continuing without circuit mappings: {CIRCUITS_FILE}")
     
     try:
         with open(filename, 'r') as f:
@@ -300,22 +442,22 @@ def main():
         ma = re.search(r"Angle of error:\s*(-?[\d.]+)", block)
         rp = re.search(r"Requested Part\(s\):\s*(.+)", block)
         mm = re.search(r"Match parts for mapping:\s*(.+)", block)
-
+        area = re.search(r"Chip Area:\s*([\d.]+)", block)   
         if not (mp and ma and rp and mm):
             continue
 
         x_raw, y_raw = map(float, mp.groups())
         requested = rp.group(1).strip().upper()
         part_name = mm.group(1).strip()
-        
-        # Use findall to get ALL Time_Offset matches in the block, and take the LAST one.
-        # This completely ignores any global maximum Time_Offset written at the top of the file.
-        mts = re.findall(r"^Time_Offset:\s*([0-9.]+)", block, flags=re.MULTILINE)
-        time_offset = float(mts[-1]) if mts else 0.0
+        area = float(area.group(1)) if area else 0.0
+
+        # Use findall to get ALL Y_Offset_cm matches in the block, and take the LAST one.
+        myo = re.findall(r"^Y_Offset_cm:\s*([0-9.]+)", block, flags=re.MULTILINE)
+        y_offset_cm = float(myo[-1]) if myo else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))
-        detections.append((x_raw, y_raw, angle, part_circuit, part_name, time_offset))
+        detections.append((x_raw, y_raw, angle, part_circuit, part_name, y_offset_cm, area))
 
     if not detections:
         print("No detections found.")
@@ -323,63 +465,12 @@ def main():
 
 
     # --- Selection Logic ---
-    for i in range(len(detections)):    # This will loop through all the detections
-
-        # Case 1: if all parts are None → just pick first (only None parts exist)
-        all_none = all(d[4] == "None" for d in detections)
-
-        if all_none:
-            chosen = detections[0]  # just pick up
-        else:
-            # Case 2: if part_name == None → use last detection with None
-            none_candidates = [d for d in detections if d[4] == "None"]
-            if none_candidates:
-                chosen = none_candidates[-1]  # last None
-            else:
-                # Case 3: otherwise, take the first with a valid part name
-                valid_candidates = [d for d in detections if d[4] != "None"]
-                chosen = valid_candidates[0]
-        # After selecting a detection, remove it from list and process next on following iteration
-        detections.remove(chosen)       
-        
-        # --- Execute chosen detection ---
-        x_raw, y_raw, angle, part_circuit, part_name, time_offset = chosen
-        tx, ty = transform_coordinates(x_raw, y_raw)
-
-        # Apply physical offset for trailing chips based on dynamic time delta
-        # Belt speed is ~18.5 cm / 8.25 s = 2.242 cm/s
-        # Since y-axis is parallel to the belt and upstream is +y, we add the offset
-        y_offset_cm = time_offset * 2.242
-        ty += y_offset_cm
-
-        if abs(angle) < 1.0:
-            pickup_offset = 0
-        elif angle > 90:
-            pickup_offset = angle - 180
-        else:
-            pickup_offset = angle
-
-        print(f"Picking up '{part_name}' at ({tx:.2f},{ty:.2f}) with {pickup_offset:.2f}° offset")
-        pick_up(tx, ty, pickup_offset)
-        phx.rest_position_closed()
-
-        # --- Drop-off ---
-        if part_name == "None" or part_circuit is None:
-            dx, dy, dz, desired_angle = 18.5, -20, 17, -90    #raised to height of 22 for now this is supposed to be droppoff location 
-            print("Dropping off to None Bin")
-            drop_off(dx, dy, dz, desired_angle)
-        #    none_belt_run()        #commented out so we can do multiple chips
-        else:
-            dx, dy, dz, desired_angle = circuits[part_circuit][part_name]
-            print(f"Dropping off '{part_name}' at ({dx:.2f},{dy:.2f},{dz:.2f}), CIRCUITS θ = {desired_angle:.2f}°")
-            drop_off(dx, dy, dz, desired_angle)
-        
-        print("Remaining detections to process: ", len(detections))
-
+    #selection_option1(circuits,detections)
+    # selection_option2(detections)
+    selection_option3(detections)
+    
     print("All operations complete. Resting.")
  
-
-
 
 if __name__ == "__main__":
     phx.turn_on()

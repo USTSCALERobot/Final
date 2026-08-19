@@ -1,10 +1,23 @@
-#!/usr/bin/env python3
+########################################################################
+# Document: beltocr2.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
+#!/usr/bin/env python3  #needs to be on line 1 for shebang to work 
 import os
+import subprocess
+import selectors
 import cv2
 import numpy as np
-import easyocr
 from difflib import SequenceMatcher
 import re
+import math
+import time
 from typing import Dict, List, Tuple
 
 # --- Paths & Files ---
@@ -17,6 +30,32 @@ ROTATED_OUTPUT     = os.path.join(SAVE_FOLDER, "rotated_blob.png")
 ROTATED_OUTPUT_180 = os.path.join(SAVE_FOLDER, "rotated_blob_180.png")
 FINAL_OCR_OUTPUT   = os.path.join(SAVE_FOLDER, "final_oriented_chip.png")
 REQUEST_FILE       = os.path.join(SAVE_FOLDER, "chip_request_input.txt")
+
+# Hailo's official PaddleOCR application performs both text detection and
+# recognition on the Hailo-8L. The setup script supplies its model/resource
+# environment. Both paths may be overridden for a different installation.
+HAILO_APPS_SETUP = os.environ.get(
+    "HAILO_APPS_SETUP", "/home/scalepi/hailo-apps/setup_env.sh"
+)
+HAILO_OCR_EXECUTABLE = os.environ.get(
+    "HAILO_OCR_EXECUTABLE",
+    "/home/scalepi/hailo-apps/venv_hailo_apps/bin/hailo-ocr",
+)
+HAILO_ARCH = os.environ.get("HAILO_ARCH", "hailo8l")
+HAILO_OCR_TIMEOUT = float(os.environ.get("HAILO_OCR_TIMEOUT", "120"))
+HAILO_OCR_INPUT = os.path.join(SAVE_FOLDER, "hailo_ocr_input.png")
+HAILO_OCR_MAX_FRAMES = int(os.environ.get("HAILO_OCR_MAX_FRAMES", "3"))
+OCR_ORIENTATION_SKIP_SCORE = float(
+    os.environ.get("OCR_ORIENTATION_SKIP_SCORE", "0.45")
+)
+
+CYAN = "\033[96m"
+RESET = "\033[0m"
+
+
+def ocr_print(message):
+    """Print a consistently tagged OCR console message."""
+    print(f"{CYAN}[OCR]{RESET} {message}")
 
 # --- Known Parts Fallback ---
 KNOWN_PARTS = [
@@ -98,6 +137,39 @@ def parse_detection_frames(detection_file: str) -> Dict[int, List[Tuple[str, str
     # If no frames detected at all, return empty (caller will handle)
     return frames
 
+# Motor Model 
+def calculate_distance(t: float) -> float:
+    if t <= 0:
+        return 0.0
+    elif t <= 2.61:
+        return 0.0274 * (t**2) + 2.0731 * t + 0.2780
+    else:
+        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+        return dist_at_2_61 + 2.2163 * (t - 2.61)
+
+def calculate_required_run_time(max_time_offset: float) -> float:
+    offset_distance = 4.0
+    base_distance = 18.75 + offset_distance
+    dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
+    
+    distance_already_traveled = calculate_distance(max_time_offset)
+    remaining_distance = max(0.0, base_distance - distance_already_traveled)
+    
+    if remaining_distance <= 0:
+        return 0.0
+    elif remaining_distance <= dist_at_2_61:
+        a = 0.0274
+        b = 2.0731
+        c = 0.2780 - remaining_distance
+        discriminant = b**2 - 4*a*c
+        if discriminant < 0:
+            return 0.0
+        else:
+            t = (-b + math.sqrt(discriminant)) / (2*a)
+            return max(0.0, t)
+    else:
+        return 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
+
 # ===== Your existing utilities (kept) =====
 def load_circuit_parts(circuit_name):
     circuit_name = circuit_name.upper()
@@ -110,11 +182,6 @@ def load_circuit_parts(circuit_name):
     parts = []
     if m:
         block = m.group(1)
-        # entries = re.findall(r'"([^"]+)"', block)
-        # for entry in entries:
-        #     pm = re.search(r'\d+\.\s*(.+?)\s*\(', entry)
-        #     if pm:
-        #         parts.append(pm.group(1).strip().upper())
         entries = re.findall(r'\d+\.\s*([^()]+)\(',block)
         for part_name in entries:
             parts.append(part_name.strip().upper())
@@ -128,9 +195,152 @@ def best_part_match(ocr_text, known_parts=KNOWN_PARTS):
             best_score, best_part = score, part
     return best_part, best_score
 
-def run_ocr_once(reader, image_path):
-    results = reader.readtext(image_path)
-    text = " ".join(res[1] for res in results)
+def prepare_hailo_ocr_image(image_path):
+    """Create a large, dark-text-on-light image for PaddleOCR detection."""
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None:
+        raise ValueError(f"Could not load OCR input image: {image_path}")
+
+    # Remove the surrounding white area and retain the chip body. Closing the
+    # mask prevents bright lettering from splitting the chip contour.
+    foreground = cv2.threshold(gray, 245, 255, cv2.THRESH_BINARY_INV)[1]
+    foreground = cv2.morphologyEx(
+        foreground,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), np.uint8),
+        iterations=2,
+    )
+    contours, _ = cv2.findContours(
+        foreground, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if contours:
+        x, y, width, height = cv2.boundingRect(max(contours, key=cv2.contourArea))
+        gray = gray[y:y + height, x:x + width]
+
+    # IC markings are normally bright on a dark package. PaddleOCR's detector
+    # is more reliable here after inversion to dark characters on a light body.
+    prepared = cv2.bitwise_not(gray)
+    prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(prepared)
+
+    target_height = 320
+    scale = max(1.0, target_height / max(1, prepared.shape[0]))
+    prepared = cv2.resize(
+        prepared,
+        None,
+        fx=scale,
+        fy=scale,
+        interpolation=cv2.INTER_LANCZOS4,
+    )
+    prepared = cv2.copyMakeBorder(
+        prepared, 64, 64, 64, 64, cv2.BORDER_CONSTANT, value=255
+    )
+    if not cv2.imwrite(HAILO_OCR_INPUT, prepared):
+        raise RuntimeError(f"Could not write prepared OCR image: {HAILO_OCR_INPUT}")
+    return HAILO_OCR_INPUT
+
+
+def run_hailo_ocr(image_path):
+    """Run Hailo's PaddleOCR pipeline and return its recognized text lines."""
+    total_started = time.perf_counter()
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"OCR input image not found: {image_path}")
+    if not os.path.isfile(HAILO_APPS_SETUP):
+        raise FileNotFoundError(f"Hailo Apps setup script not found: {HAILO_APPS_SETUP}")
+    if not os.path.isfile(HAILO_OCR_EXECUTABLE):
+        raise FileNotFoundError(f"hailo-ocr executable not found: {HAILO_OCR_EXECUTABLE}")
+
+    preprocess_started = time.perf_counter()
+    prepared_image_path = prepare_hailo_ocr_image(image_path)
+    preprocess_seconds = time.perf_counter() - preprocess_started
+
+    # Arguments after argv[0] are passed positionally so paths never need shell
+    # interpolation or manual quoting.
+    # setup_env.sh currently resolves its venv relative to the working directory,
+    # so enter the Hailo Apps directory before sourcing it.
+    shell_script = (
+        'cd "$(dirname "$1")" && '
+        'source "$1" >/dev/null && '
+        'export PYTHONUNBUFFERED=1 && '
+        'exec "$2" --arch "$3" --input "$4"'
+    )
+    cmd = [
+        "/bin/bash", "-lc", shell_script, "hailo-ocr-runner",
+        HAILO_APPS_SETUP, HAILO_OCR_EXECUTABLE, HAILO_ARCH, prepared_image_path,
+    ]
+    inference_started = time.perf_counter()
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    output_lines = []
+    frame_count = 0
+    saw_ocr = False
+    stopped_early = False
+    deadline = time.monotonic() + HAILO_OCR_TIMEOUT
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    try:
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd, HAILO_OCR_TIMEOUT)
+            if not selector.select(timeout=0.25):
+                continue
+            line = process.stdout.readline()
+            if not line:
+                continue
+            output_lines.append(line)
+            if "OCR Detection:" in line:
+                saw_ocr = True
+            if "Frame count:" in line:
+                frame_count += 1
+                # A new frame means all callback lines from the previous frame
+                # have arrived. Static-image OCR cannot improve after repeats.
+                if (saw_ocr and frame_count >= 2) or frame_count >= HAILO_OCR_MAX_FRAMES:
+                    stopped_early = True
+                    process.terminate()
+                    break
+        try:
+            remainder, _ = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            remainder, _ = process.communicate()
+        if remainder:
+            output_lines.append(remainder)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
+        raise RuntimeError(
+            f"Hailo OCR timed out after {HAILO_OCR_TIMEOUT:.0f}s for {image_path}"
+        ) from exc
+    finally:
+        selector.close()
+
+    inference_seconds = time.perf_counter() - inference_started
+    combined_output = "".join(output_lines)
+    if process.returncode != 0 and not stopped_early:
+        tail = "\n".join(combined_output.splitlines()[-20:])
+        raise RuntimeError(
+            f"Hailo OCR failed with exit code {process.returncode} for {image_path}:\n{tail}"
+        )
+
+    texts = re.findall(
+        r"OCR Detection:\s*Text:\s*'(.*?)'\s+Confidence:",
+        combined_output,
+    )
+    texts = [text.strip() for text in texts if text.strip()]
+    texts = list(dict.fromkeys(texts))  # imagefreeze may report the same line per frame
+    if not texts:
+        ocr_print(f"Warning: Hailo OCR found no text in {image_path}")
+    text = " ".join(texts)
+    total_seconds = time.perf_counter() - total_started
+    ocr_print(
+        f"Timing {os.path.basename(image_path)}: "
+        f"preprocess={preprocess_seconds:.3f}s, "
+        f"hailo={inference_seconds:.3f}s, total={total_seconds:.3f}s"
+    )
     return text, len(text)
 
 def mask_and_rotate(original_image):
@@ -169,20 +379,33 @@ def mask_and_rotate(original_image):
 
     rotated_180 = cv2.rotate(rotated, cv2.ROTATE_180)
     cv2.imwrite(ROTATED_OUTPUT_180, rotated_180)
-    return angle
+    return angle, wb, hb
 
-def run_ocr_and_select(reader):
-    text0, _ = run_ocr_once(reader, ROTATED_OUTPUT)
-    text180, _ = run_ocr_once(reader, ROTATED_OUTPUT_180)
+def run_ocr_and_select():
+    orientation_started = time.perf_counter()
+    text0, _ = run_hailo_ocr(ROTATED_OUTPUT)
     _, r0 = best_part_match(text0)
+    if text0 and r0 >= OCR_ORIENTATION_SKIP_SCORE:
+        ocr_print(
+            f"Skipped 180-degree pass; first-pass match={r0:.2f}"
+        )
+        return ROTATED_OUTPUT, text0
+
+    text180, _ = run_hailo_ocr(ROTATED_OUTPUT_180)
     _, r180 = best_part_match(text180)
-    return (ROTATED_OUTPUT_180 if r180 > r0 else ROTATED_OUTPUT)
+    selected = ((ROTATED_OUTPUT_180, text180) if r180 > r0
+                else (ROTATED_OUTPUT, text0))
+    ocr_print(
+        f"Both orientations completed in "
+        f"{time.perf_counter() - orientation_started:.3f}s"
+    )
+    return selected
 
 def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)
 
 # ===== Updated: append with Frame line (unchanged logic, now gets frame_no robustly) =====
-def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=0.0):
+def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, time_offset=0.0, wb=0.0, hb=0.0):
     # Read the user’s request (circuit or manual parts)
     circuit_name = None
     manual_parts = []
@@ -208,27 +431,31 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=
         source_desc = ", ".join(manual_parts) if manual_parts else "None"
 
     # OCR and best-match against KNOWN_PARTS (as before)
-    reader = easyocr.Reader(['en'], gpu=False)
-    raw_text, _ = run_ocr_once(reader, FINAL_OCR_OUTPUT)
     best_part, score = best_part_match(raw_text)
 
     mid_str    = f"({chip_middle[0]:.6f}, {chip_middle[1]:.6f})"
     match_disp = best_part if best_part and best_part.upper() in parts_list else "None"
+    y_offset_cm = calculate_distance(time_offset)
+
+    if raw_text and best_part:
+        ocr_print(f"Detected chip: {best_part} (match ratio={score:.2f})")
 
     # Append block (with Frame: N)
     with open(DETECTION_FILE, "a") as f:
         f.write(f"Frame: {frame_no}\n")
         f.write(f"Time_Offset: {time_offset:.2f}\n")
+        f.write(f"Y_Offset_cm: {y_offset_cm:.4f}\n")
         f.write(f"{crop_index}. Raw OCR Text: {raw_text}\n")
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
+        f.write(f"Chip Area: {wb * hb:.2f}\n")
         f.write(f"Closest known part: {best_part or 'None'}\n")
         f.write(f"Match ratio: {score:.2f}\n")
         f.write(f"Requested Part(s): {source_desc}\n")
         f.write(f"Match parts for mapping: {match_disp}\n")
         f.write("-----------------------------------\n\n")
 
-    print(f"✅ Detection file updated for Frame {frame_no}, crop {crop_index}.")
+    ocr_print(f"Detection file updated for Frame {frame_no}, crop {crop_index}.")
 
 # ===== Main now processes by FRAME (or inferred frames) =====
 def main():
@@ -237,20 +464,20 @@ def main():
     # Parse the detection file (supports FRAME= headers or legacy format)
     frames = parse_detection_frames(DETECTION_FILE)
     if not frames:
-        print("⚠️ No crops found in detection file; nothing to OCR.")
+        ocr_print("Warning: No crops found in detection file; nothing to OCR.")
         return
 
     # CLEAR THE FILE! We only want to save the final OCR results, 
     # otherwise the raw vision text will corrupt the arm script's regex.
     open(DETECTION_FILE, "w").close()
 
-    reader = easyocr.Reader(['en'], gpu=False)
-
     # Write the global maximum time offset at the top of the file so the motor script
     # knows how long the belt ran during vision, even if the final frame timed out with no crops.
     global_max_offset = max(frame_time_offsets.values()) if frame_time_offsets else 0.0
+    required_run_time = calculate_required_run_time(global_max_offset)
     with open(DETECTION_FILE, "a") as f:
-        f.write(f"Global_Max_Time_Offset: {global_max_offset:.2f}\n\n")
+        f.write(f"Global_Max_Time_Offset: {global_max_offset:.2f}\n")
+        f.write(f"Required_Belt_Run_Time: {required_run_time:.4f}\n\n")
 
     for frame_no in sorted(frames.keys()):     # process FRAME=1, then FRAME=2
         seen: List[Tuple[float, float]] = []   # reset duplicate tracker for each frame
@@ -261,14 +488,14 @@ def main():
             if is_duplicate_point(mid, seen, threshold=0.01):
                 continue
             seen.append(mid)
+            # added width and height to the mask and rotate function
+            angle, wb, hb = mask_and_rotate(crop_path)
 
-            angle = mask_and_rotate(crop_path)
-
-            best_img = run_ocr_and_select(reader)
+            best_img, raw_text = run_ocr_and_select()
             cv2.imwrite(FINAL_OCR_OUTPUT, cv2.imread(best_img))
 
             t_offset = frame_time_offsets.get(frame_no, 0.0)
-            update_detection_file(angle, idx, mid, frame_no, t_offset)
+            update_detection_file(raw_text, angle, idx, mid, frame_no, t_offset, wb, hb)
 
 if __name__ == "__main__":
     main()

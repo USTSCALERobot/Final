@@ -1,3 +1,13 @@
+########################################################################
+# Document: chipvision3.py
+# Project: SCALE Automated Vision System
+# Institution: University of St. Thomas
+# Contributors: Dan Walczak, Bennett Nelson, Erik Perez, 
+#               Louis Stevenson, Ryan Bercich, Theodore Thorpe
+# Description: 
+#   TODO: add description...
+########################################################################
+
 #!/usr/bin/env python3
 import sys
 sys.path.insert(0, "/home/scalepi/hailo-rpi5-examples/basic_pipelines")
@@ -8,11 +18,18 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 import numpy as np
+import math
 import cv2
 import hailo
 from hailo_rpi_common import get_caps_from_pad, app_callback_class
 from detection_pipeline import GStreamerDetectionApp
 import time
+
+# --- Configuration ---
+HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
+HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
+SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
+DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 
 # --- Motor GPIO Setup (gpiod 2.x API) ---
 import gpiod
@@ -31,27 +48,27 @@ for _attempt in range(5):
     except OSError as e:
         if e.errno == 16 and _attempt < 4:
             import time as _time
-            print(f"⚠️ GPIO pin busy, retrying ({_attempt+1}/5)...")
+            print(f"Warning: GPIO pin busy, retrying ({_attempt+1}/5)...")
             _time.sleep(1)
         else:
             raise
 
 if _motor_request is None:
-    sys.exit("❌ Could not acquire GPIO pin after retries.")
+    sys.exit("Falure: Could not acquire GPIO pin after retries.")
 
 def start_motor():
     try:
         _motor_request.set_value(MOTOR_PIN, gpiod.line.Value.ACTIVE)
-        print("✅ Motor started.")
+        print("Passed: Motor started.")
     except Exception as e:
-        print(f"⚠️ Failed to start motor: {e}")
+        print(f"Failure: Failed to start motor: {e}")
 
 def stop_motor():
     try:
         _motor_request.set_value(MOTOR_PIN, gpiod.line.Value.INACTIVE)
-        print("✅ Motor stopped.")
+        print("Passed: Motor stopped.")
     except Exception as e:
-        print(f"⚠️ Failed to stop motor: {e}")
+        print(f"Failure: Failed to stop motor: {e}")
 
 def release_gpio():
     try:
@@ -63,18 +80,10 @@ def release_gpio():
     except Exception:
         pass
 
-# --- Configuration ---
-HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
-SAVE_FOLDER      = "/home/scalepi/Desktop/savephototest"
-DETECTION_FILE   = os.path.join(SAVE_FOLDER, "latest_detection.txt")
 
 # Two-frame support (no pipeline restart)
-
-
-# EXACT timing per your clarification:
+ 
 PAUSE_SEC = 1.0     # pause after Frame 1
-NUDGE_SEC = 1.5     # motor run between Frame 1 and Frame 2
 
 # --- Environment Activation Function ---
 def activate_hailo_env():
@@ -98,6 +107,27 @@ def activate_hailo_env():
 
 # --- Change Working Directory ---
 os.chdir("/home/scalepi/hailo-rpi5-examples")
+
+def time_to_distance(t):
+    if t <= 0: return 0.0
+    if t <= 2.61: 
+        return 0.0274 * (t **2) + 2.0731 * t + 0.2780
+    else: 
+        dist_at_2_61 = 0.0274 * (2.61 **2) + 2.0731 * 2.61 + 0.2780
+        return dist_at_2_61 + 2.2163 * (t - 2.61)
+
+def distance_to_time(d):
+    if d <= 0: return 0.0
+    dist_at_2_61 = 0.0274 * (2.61 **2) + 2.0731 * 2.61 + 0.2780
+    if d <= dist_at_2_61:
+        a = 0.0274
+        b = 2.0731
+        c = 0.2780 - d
+        discriminant = b**2 -4*a*c
+        if discriminant < 0: return 0.0
+        return ((-b + math.sqrt(discriminant))/(2*a))
+    else: 
+        return 2.61 + (d - dist_at_2_61) / 2.2163
 
 # --- Callback Class for Detection ---
 class UserAppCallback(app_callback_class):
@@ -150,15 +180,16 @@ def _stop_and_quit_async(user_data: UserAppCallback):
     try:
         user_data.pipeline.set_state(Gst.State.NULL)
     except Exception as e:
-        print(f"⚠️ set_state(NULL) error: {e}")
+        print(f"Warning: set_state(NULL) error: {e}")
     try:
         if user_data.main_loop and user_data.main_loop.is_running():
             user_data.main_loop.quit()
     except Exception as e:
-        print(f"⚠️ main_loop.quit() error: {e}")
+        print(f"Failure: main_loop.quit() error: {e}")
     return False  # run once
 
 # --- GStreamer Pad Callback ---
+# This is the core vision pipleline for capturing and processing Chips on the belt
 def app_callback(pad, info, user_data: UserAppCallback):
     buf = info.get_buffer()
     if not buf or user_data.stop_detection:
@@ -186,7 +217,8 @@ def app_callback(pad, info, user_data: UserAppCallback):
               f"Confidence: {confidence:.2f}")
         crop_list.append((x1, y1, x2, y2))
 
-    # ---------- N-Chip Dynamic Trigger ----------
+    #   -N-Chip Dynamic Trigger intended to run as a state machine for multiple chips 
+    #   Potential issue: when running for N  chips, there could be delay and spacial problems.
     if user_data.state == "WAITING_FOR_TRIGGER":
         elapsed = time.time() - user_data.motor_start_time
         
@@ -198,14 +230,19 @@ def app_callback(pad, info, user_data: UserAppCallback):
             trigger_stop = any(y1 > 0.40 for (_, y1, _, _) in crop_list)
         else:
             # Other chips: Wait 0.5s before checking, then look for sweet spot
+            # This needs to be a window so that we dont capture the same chip twice. 
             if elapsed > 0.5:
-                trigger_stop = any(0.38 < y1 < 0.45 for (_, y1, _, _) in crop_list)
+                trigger_stop = any(0.39 < y1 < 0.41 for (_, y1, _, _) in crop_list)
                 if not trigger_stop and elapsed > 2.5:
                     is_timeout = True
-        
+        #   Here we have found a chip in the sweet spot, so we stop the motor and start the capture process
         if trigger_stop:
             if user_data.current_frame > 1:
-                user_data.time_offset += elapsed
+                # Convert accumulated time to distance, add new distance, convert back to equivalent time
+                current_dist = time_to_distance(elapsed)
+                accumulated_dist = time_to_distance(user_data.time_offset)
+                total_dist = accumulated_dist + current_dist
+                user_data.time_offset = distance_to_time(total_dist)
             print(f"✅ [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
             stop_motor()
             user_data.state = "STOPPING_FOR_CAPTURE"
@@ -215,8 +252,11 @@ def app_callback(pad, info, user_data: UserAppCallback):
             GLib.timeout_add(500, _ready_capture)
 
         elif is_timeout:
-            user_data.time_offset += elapsed
-            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 3.0s.")
+            current_dist = time_to_distance(elapsed)
+            accumulated_dist = time_to_distance(user_data.time_offset)
+            total_dist = accumulated_dist + current_dist
+            user_data.time_offset = distance_to_time(total_dist)
+            print(f" [Frame {user_data.current_frame}] Timeout! No additional chip seen within 2.5s.")
             stop_motor()
             user_data.state = "STOPPING_FOR_TIMEOUT"
             def _ready_timeout():
@@ -240,9 +280,9 @@ def app_callback(pad, info, user_data: UserAppCallback):
             saved_any = False
             for i, (x1, y1, x2, y2) in enumerate(crop_list, start=1):
                 if y1 < 0.35 or y1 > 0.55:
-                    print(f"ℹ️ Ignoring chip at y1={y1:.2f} (Outside capture zone)")
+                    print(f"Ignoring chip at y1={y1:.2f} (Outside capture zone)")
                     continue
-                print(f"📸 Saving Crop {i} (Frame {user_data.current_frame})")
+                print(f"Saving Crop {i} (Frame {user_data.current_frame})")
                 suffix = str(user_data.current_frame) if user_data.current_frame > 1 else ""
                 full, crop = save_full_and_crop(frame, (x1, y1, x2, y2), i, suffix=suffix)
                 f.write(f"Cropped Photo Location: {full},{crop}\n")
@@ -250,12 +290,13 @@ def app_callback(pad, info, user_data: UserAppCallback):
                 saved_any = True
             
             if not saved_any:
-                print(f"⚠️ Frame {user_data.current_frame} saved, but no chips were in the sweet spot!")
+                print(f"Warning: Frame {user_data.current_frame} saved, but no chips were in the sweet spot!")
                 f.write("No detections found\n\n")
 
         user_data.current_frame += 1
         user_data.state = "PAUSED_NUDGING"
-        
+        # This is not going to nudge the belt it simply restarts the motor. 
+        # nudging of the chip is no longer used NEED TO RENAME THIS LABEL AND FUNCTION
         def _start_nudge():
             print(f"▶️ Restarting motor for next chip...")
             user_data.motor_start_time = time.time()
@@ -296,56 +337,7 @@ def stop_pipeline_safe(pipeline, main_loop):
     except Exception as e:
         print(f"⚠️ main_loop.quit() error: {e}")
 
-# if __name__ == "__main__":
-#     activate_hailo_env()
-#     Gst.init(None)
 
-#     main_loop = GLib.MainLoop()
-#     dummy = Gst.Pipeline.new("dummy-pipeline")
-#     user_data = UserAppCallback(dummy, main_loop)
-#     app = GStreamerDetectionApp(app_callback, user_data)
-#     user_data.pipeline = app.pipeline
-
-#     # --- Bus watch: handle XV window-close and pipeline errors cleanly ---
-#     def _on_bus_message(bus, message, loop):
-#         t = message.type
-#         if t == Gst.MessageType.ERROR:
-#             err, debug = message.parse_error()
-#             err_str = str(err)
-#             debug_str = str(debug) if debug else ""
-#             if "Output window was closed" in err_str or "Output window was closed" in debug_str:
-#                 print("🪟 Display window closed — shutting down cleanly.")
-#             else:
-#                 print(f"⚠️ Pipeline error: {err_str}")
-#             GLib.idle_add(_stop_and_quit_async, user_data)
-#         elif t == Gst.MessageType.EOS:
-#             print("⏹️ Pipeline EOS — shutting down.")
-#             GLib.idle_add(_stop_and_quit_async, user_data)
-#         return True
-
-#     bus = app.pipeline.get_bus()
-#     bus.add_signal_watch()
-#     bus.connect("message", _on_bus_message, main_loop)
-
-#     try:
-#         start_motor()
-#         print(">>> Running chip detection pipeline...")
-#         app.run()
-#         # app.run() starts its own internal GLib loop; run our outer loop too
-#         # so _stop_and_quit_async can quit it when detection is done
-#         if main_loop.is_running() is False:
-#             main_loop.run()
-#     except KeyboardInterrupt:
-#         print("🛑 AI detection interrupted.")
-#     except Exception as e:
-#         print(f"Application terminated: {e}")
-#     finally:
-#         stop_motor()
-#         release_gpio()
-#         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
-#         print("🧹 Cleanup done.")
-
-#           hi man !!!!!!!!!!!!!!!!!!!!!!
 if __name__ == "__main__":
     activate_hailo_env()
     Gst.init(None)
@@ -388,4 +380,4 @@ if __name__ == "__main__":
         stop_motor()
         release_gpio()
         stop_pipeline_safe(user_data.pipeline, user_data.main_loop)
-        print("🧹 Cleanup done.")
+        print("Passed: Cleanup done.")

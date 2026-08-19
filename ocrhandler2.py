@@ -33,21 +33,6 @@ def activate_env():
     print("✅ Environment activated successfully.")
 
 # --- Read Detection File ---
-# def read_detection_file():
-#     if not os.path.exists(DETECTION_FILE):
-#         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
-#     with open(DETECTION_FILE, "r") as f:
-#         lines = f.readlines()
-#     if len(lines) < 2:
-#         sys.exit("❌ Detection file format error. Expected at least two lines.")
-#     cropped_line = lines[0].strip()
-#     if not cropped_line.startswith("Cropped Photo Location:"):
-#         sys.exit("❌ Unexpected format in detection file.")
-#     parts = cropped_line.split(",", 1)
-#     if len(parts) < 2:
-#         sys.exit("❌ Couldn't parse cropped image path.")
-#     return parts[1].strip()
-
 def read_detection_file():
     if not os.path.exists(DETECTION_FILE):
         sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
@@ -69,7 +54,9 @@ def read_detection_file():
 def run_ocr():
     image_path = read_detection_file()
     print(f"Running OCR on image: {image_path}")
-    cmd = ["/usr/bin/python3", OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
+    # Reuse the system interpreter selected by master2.py. beltocr2.py launches
+    # the accelerated OCR subprocess inside the dedicated Hailo Apps environment.
+    cmd = [sys.executable, OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
     print("▶", " ".join(cmd))
     result = subprocess.run(cmd)
     if result.returncode != 0:

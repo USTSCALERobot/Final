@@ -11,6 +11,7 @@
 #!/usr/bin/env python3  #needs to be on line 1 for shebang to work 
 import os
 import subprocess
+import selectors
 import cv2
 import numpy as np
 from difflib import SequenceMatcher
@@ -43,6 +44,10 @@ HAILO_OCR_EXECUTABLE = os.environ.get(
 HAILO_ARCH = os.environ.get("HAILO_ARCH", "hailo8l")
 HAILO_OCR_TIMEOUT = float(os.environ.get("HAILO_OCR_TIMEOUT", "120"))
 HAILO_OCR_INPUT = os.path.join(SAVE_FOLDER, "hailo_ocr_input.png")
+HAILO_OCR_MAX_FRAMES = int(os.environ.get("HAILO_OCR_MAX_FRAMES", "3"))
+OCR_ORIENTATION_SKIP_SCORE = float(
+    os.environ.get("OCR_ORIENTATION_SKIP_SCORE", "0.45")
+)
 
 # --- Known Parts Fallback ---
 KNOWN_PARTS = [
@@ -247,6 +252,7 @@ def run_hailo_ocr(image_path):
     shell_script = (
         'cd "$(dirname "$1")" && '
         'source "$1" >/dev/null && '
+        'export PYTHONUNBUFFERED=1 && '
         'exec "$2" --arch "$3" --input "$4"'
     )
     cmd = [
@@ -254,24 +260,62 @@ def run_hailo_ocr(image_path):
         HAILO_APPS_SETUP, HAILO_OCR_EXECUTABLE, HAILO_ARCH, prepared_image_path,
     ]
     inference_started = time.perf_counter()
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    output_lines = []
+    frame_count = 0
+    saw_ocr = False
+    stopped_early = False
+    deadline = time.monotonic() + HAILO_OCR_TIMEOUT
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=HAILO_OCR_TIMEOUT,
-        )
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd, HAILO_OCR_TIMEOUT)
+            if not selector.select(timeout=0.25):
+                continue
+            line = process.stdout.readline()
+            if not line:
+                continue
+            output_lines.append(line)
+            if "OCR Detection:" in line:
+                saw_ocr = True
+            if "Frame count:" in line:
+                frame_count += 1
+                # A new frame means all callback lines from the previous frame
+                # have arrived. Static-image OCR cannot improve after repeats.
+                if (saw_ocr and frame_count >= 2) or frame_count >= HAILO_OCR_MAX_FRAMES:
+                    stopped_early = True
+                    process.terminate()
+                    break
+        try:
+            remainder, _ = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            remainder, _ = process.communicate()
+        if remainder:
+            output_lines.append(remainder)
     except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
         raise RuntimeError(
             f"Hailo OCR timed out after {HAILO_OCR_TIMEOUT:.0f}s for {image_path}"
         ) from exc
-    inference_seconds = time.perf_counter() - inference_started
+    finally:
+        selector.close()
 
-    combined_output = "\n".join((result.stdout, result.stderr))
-    if result.returncode != 0:
+    inference_seconds = time.perf_counter() - inference_started
+    combined_output = "".join(output_lines)
+    if process.returncode != 0 and not stopped_early:
         tail = "\n".join(combined_output.splitlines()[-20:])
         raise RuntimeError(
-            f"Hailo OCR failed with exit code {result.returncode} for {image_path}:\n{tail}"
+            f"Hailo OCR failed with exit code {process.returncode} for {image_path}:\n{tail}"
         )
 
     texts = re.findall(
@@ -332,8 +376,14 @@ def mask_and_rotate(original_image):
 def run_ocr_and_select():
     orientation_started = time.perf_counter()
     text0, _ = run_hailo_ocr(ROTATED_OUTPUT)
-    text180, _ = run_hailo_ocr(ROTATED_OUTPUT_180)
     _, r0 = best_part_match(text0)
+    if text0 and r0 >= OCR_ORIENTATION_SKIP_SCORE:
+        print(
+            f"[OCR timing] skipped 180-degree pass; first-pass match={r0:.2f}"
+        )
+        return ROTATED_OUTPUT, text0
+
+    text180, _ = run_hailo_ocr(ROTATED_OUTPUT_180)
     _, r180 = best_part_match(text180)
     selected = ((ROTATED_OUTPUT_180, text180) if r180 > r0
                 else (ROTATED_OUTPUT, text0))

@@ -191,7 +191,13 @@ def run_hailo_ocr(image_path):
 
     # Arguments after argv[0] are passed positionally so paths never need shell
     # interpolation or manual quoting.
-    shell_script = 'source "$1" >/dev/null && exec "$2" --arch "$3" --input "$4"'
+    # setup_env.sh currently resolves its venv relative to the working directory,
+    # so enter the Hailo Apps directory before sourcing it.
+    shell_script = (
+        'cd "$(dirname "$1")" && '
+        'source "$1" >/dev/null && '
+        'exec "$2" --arch "$3" --input "$4"'
+    )
     cmd = [
         "/bin/bash", "-lc", shell_script, "hailo-ocr-runner",
         HAILO_APPS_SETUP, HAILO_OCR_EXECUTABLE, HAILO_ARCH, image_path,

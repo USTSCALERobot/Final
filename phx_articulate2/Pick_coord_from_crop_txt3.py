@@ -254,7 +254,7 @@ def drop_off(x, y, z, desired_angle):
     
     # Move vertically UP to avoid nudging chip after dropoff (relative to z)
     go_to_pos([x, y, z + 4.25], theta0_4)
-    print("Moving to fixed position (10, 0, 25)...")
+    print("Moving to fixed position (10, 0, 25)...")intermed
     go_to_pos([10, 0, 25], 0)
 
     print("Returning to rest position...")

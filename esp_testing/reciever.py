@@ -41,9 +41,9 @@ while True:
       break
     img_array = np.frombuffer(jpeg, dtype=np.uint8)
     frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    
+    flipped = cv2.rotate(frame,cv2.ROTATE_180)
     if frame is not None:
-      cv2.imshow("esp32 camera", frame)
+      cv2.imshow("esp32 camera", flipped)
     else:
       print("Warning: Failed to decode frame")
 

@@ -121,13 +121,13 @@ try:
       elif key == ord('g'):
         if frame is not None:
             filename = os.path.join("good", f"img_{int(time.time())}.jpg")
-            cv2.imwrite(filename, frame)
+            cv2.imwrite(filename, flipped)
             good_count += 1
             print(f"Saved GOOD image: {filename} (Total: {good_count})")
       elif key == ord('b'):
         if frame is not None:
             filename = os.path.join("bad", f"img_{int(time.time())}.jpg")
-            cv2.imwrite(filename, frame)
+            cv2.imwrite(filename, flipped)
             bad_count += 1
             print(f"Saved BAD image: {filename} (Total: {bad_count})")
     

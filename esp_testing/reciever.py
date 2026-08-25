@@ -7,7 +7,9 @@ import os
 import time
 
 # Add phx_articulate2 to path so we can import kinematics and phx
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'phx_articulate2')))
+phx_dir = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2"
+if phx_dir not in sys.path:
+   sys.path.append(phx_dir)
 import kinematics as kin
 import phx
 
@@ -43,14 +45,21 @@ def go_to_pos(pickup_pos, theta0_4):
         return False
     return True
 
+def set_gripper_rotation(ang_deg):
+   difference = ang_deg - 180
+   scaled_angle = 180 + (difference * 1.2)
+   motor_position = (scaled_angle / 180) * 512
+   phx.set_gripper(round(motor_position))
+
 # Initialize arm
 print("Initializing robot arm...")
 phx.turn_on()
-phx.rest_position()
 current_pos = [18.5, 0.0, 23.0]
 current_theta = -90.0
-print(f"Moving to starting position: {current_pos} with angle {current_theta}")
+current_gripper_angle = 180.0
+print(f"Moving to starting position: {current_pos} with angle {current_gripper_angle}")
 go_to_pos(current_pos, current_theta)
+set_gripper_rotation(current_gripper_angle)
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -84,9 +93,9 @@ try:
         break
       img_array = np.frombuffer(jpeg, dtype=np.uint8)
       frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-      
-      if frame is not None:
-        cv2.imshow("esp32 camera", frame)
+      flipped = cv2.rotate(frame, cv2.ROTATE_180)
+      if flipped is not None:
+        cv2.imshow("esp32 camera", flipped)
       else:
         print("Warning: Failed to decode frame")
 
@@ -98,16 +107,15 @@ try:
         try:
             x_str = input(f"Enter X (current: {current_pos[0]}): ")
             y_str = input(f"Enter Y (current: {current_pos[1]}): ")
-            z_str = input(f"Enter Z (current: {current_pos[2]}): ")
-            theta_str = input(f"Enter Angle (current: {current_theta}): ")
+            angle_str = input(f"Enter Angle (current: {current_gripper_angle}): ")
             
             if x_str.strip(): current_pos[0] = float(x_str)
             if y_str.strip(): current_pos[1] = float(y_str)
-            if z_str.strip(): current_pos[2] = float(z_str)
-            if theta_str.strip(): current_theta = float(theta_str)
+            if angle_str.strip(): current_gripper_angle = float(angle_str)
             
-            print(f"Moving to {current_pos} with angle {current_theta}...")
+            print(f"Moving to {current_pos} with angle {current_gripper_angle}...")
             go_to_pos(current_pos, current_theta)
+            set_gripper_rotation(current_gripper_angle)
         except ValueError:
             print("Invalid input. Please enter numbers.")
       elif key == ord('g'):
@@ -129,7 +137,11 @@ except KeyboardInterrupt:
 finally:
   print("Returning arm to rest position...")
   try:
-      phx.rest_position()
+      current_pos = [18.5, 0.0, 23.0]
+      current_theta = -90.0
+      print(f"Moving to starting position: {current_pos} with angle {current_theta}")
+      go_to_pos(current_pos, current_theta)
+      set_gripper_rotation(180)
   except Exception as e:
       print(f"Failed to rest arm: {e}")
   server.close()

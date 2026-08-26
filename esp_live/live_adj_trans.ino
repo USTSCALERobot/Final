@@ -8,10 +8,10 @@
 // WiFi Settings
 // =======================
 
-const char* ssid = "espsignal";
-const char* password = "scaleuser123";
+const char* ssid = "";
+const char* password = "";
 
-IPAddress piAddress(10, 42, 0, 1);   // Raspberry Pi hotspot IP
+IPAddress piAddress();   // Raspberry Pi hotspot IP
 const uint16_t piPort = 5000;
 
 WiFiClient client;

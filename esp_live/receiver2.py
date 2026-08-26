@@ -117,7 +117,7 @@ def main():
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
 
-            time.sleep(0.5)
+            time.sleep(0)
 
     finally:
         conn.close()

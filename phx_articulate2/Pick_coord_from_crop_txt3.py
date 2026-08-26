@@ -201,7 +201,7 @@ def pick_up(x, y, additional_angle=0):
     intermediate_pos = [x, y, 23]
     go_to_pos(intermediate_pos, theta0_4)
 
-    time.sleep(1.5) # freeze to check positioning
+    time.sleep(3) # freeze to check positioning and run inference for live adjustment
     print(str(intermediate_pos), str(theta0_4))
     # adjust intermediate_pos so that arm is hanging straight down at z=23
     phx.all_motors.set_moving_speed(40)         # Set motion speed slower for more gracefull decent. 

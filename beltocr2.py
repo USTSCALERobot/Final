@@ -48,6 +48,7 @@ HAILO_OCR_MAX_FRAMES = int(os.environ.get("HAILO_OCR_MAX_FRAMES", "3"))
 OCR_ORIENTATION_SKIP_SCORE = float(
     os.environ.get("OCR_ORIENTATION_SKIP_SCORE", "0.45")
 )
+MIN_PART_MATCH_SCORE = float(os.environ.get("MIN_PART_MATCH_SCORE", "0.45"))
 
 CYAN = "\033[96m"
 RESET = "\033[0m"
@@ -485,11 +486,20 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
     best_part, score = best_part_match(raw_text)
 
     mid_str    = f"({chip_middle[0]:.6f}, {chip_middle[1]:.6f})"
-    match_disp = best_part if best_part and best_part.upper() in parts_list else "None"
+    reliable_part = best_part if score >= MIN_PART_MATCH_SCORE else None
+    match_disp = (
+        reliable_part
+        if reliable_part and reliable_part.upper() in parts_list
+        else "None"
+    )
     y_offset_cm = calculate_distance(time_offset)
 
-    if raw_text and best_part:
-        ocr_print(f"Detected chip: {best_part} (match ratio={score:.2f})")
+    if raw_text and reliable_part:
+        ocr_print(f"Detected chip: {reliable_part} (match ratio={score:.2f})")
+    elif raw_text:
+        ocr_print(
+            f"OCR text was not a reliable chip match (best ratio={score:.2f})"
+        )
 
     # Append block (with Frame: N)
     with open(DETECTION_FILE, "a") as f:
@@ -500,7 +510,7 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
         f.write(f"Chip Area: {wb * hb:.2f}\n")
-        f.write(f"Closest known part: {best_part or 'None'}\n")
+        f.write(f"Closest known part: {reliable_part or 'None'}\n")
         f.write(f"Match ratio: {score:.2f}\n")
         f.write(f"Requested Part(s): {source_desc}\n")
         f.write(f"Match parts for mapping: {match_disp}\n")

@@ -166,6 +166,18 @@ def save_full_and_crop(frame, bbox, idx, suffix=""):
         xi2, yi2 = int(x2 * w), int(y2 * h)
     else:
         xi1, yi1, xi2, yi2 = map(int, (x1, y1, x2, y2))
+
+    # Object detectors commonly return a tight box around the most distinctive
+    # part of an IC package. Include surrounding context so markings near the
+    # package edges are not cut off before OCR ever sees them.
+    box_width = max(1, xi2 - xi1)
+    box_height = max(1, yi2 - yi1)
+    pad_x = max(12, int(round(box_width * 0.20)))
+    pad_y = max(12, int(round(box_height * 0.20)))
+    xi1 -= pad_x
+    yi1 -= pad_y
+    xi2 += pad_x
+    yi2 += pad_y
     xi1, yi1 = max(0, xi1), max(0, yi1)
     xi2, yi2 = min(w, xi2), min(h, yi2)
 

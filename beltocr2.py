@@ -171,7 +171,6 @@ def calculate_required_run_time(max_time_offset: float) -> float:
     else:
         return 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
 
-# ===== Your existing utilities (kept) =====
 def load_circuit_parts(circuit_name):
     circuit_name = circuit_name.upper()
     try:
@@ -202,11 +201,6 @@ def prepare_hailo_ocr_image(image_path):
     if gray is None:
         raise ValueError(f"Could not load OCR input image: {image_path}")
 
-    # Do not contour-crop here. The source is already the detector's complete
-    # chip crop, and a threshold contour can easily select only a logo, a line
-    # of lettering, or a shadow and permanently discard the actual part text.
-    # IC markings are normally bright on a dark package, so invert them to the
-    # dark-on-light form preferred by PaddleOCR while preserving every pixel.
     prepared = cv2.bitwise_not(gray)
     prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(prepared)
 
@@ -241,10 +235,6 @@ def run_hailo_ocr(image_path):
     prepared_image_path = prepare_hailo_ocr_image(image_path)
     preprocess_seconds = time.perf_counter() - preprocess_started
 
-    # Arguments after argv[0] are passed positionally so paths never need shell
-    # interpolation or manual quoting.
-    # setup_env.sh currently resolves its venv relative to the working directory,
-    # so enter the Hailo Apps directory before sourcing it.
     shell_script = (
         'cd "$(dirname "$1")" && '
         'source "$1" >/dev/null && '
@@ -456,7 +446,6 @@ def run_ocr_and_select():
 def is_duplicate_point(pt, seen, threshold=0.01):
     return any(abs(pt[0]-x)<threshold and abs(pt[1]-y)<threshold for x,y in seen)
 
-# ===== Updated: append with Frame line (unchanged logic, now gets frame_no robustly) =====
 def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, time_offset=0.0, wb=0.0, hb=0.0):
     # Read the user’s request (circuit or manual parts)
     circuit_name = None
@@ -482,7 +471,7 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
         parts_list = manual_parts
         source_desc = ", ".join(manual_parts) if manual_parts else "None"
 
-    # OCR and best-match against KNOWN_PARTS (as before)
+    # OCR and best-match against KNOWN_PARTS
     best_part, score = best_part_match(raw_text)
 
     mid_str    = f"({chip_middle[0]:.6f}, {chip_middle[1]:.6f})"
@@ -518,7 +507,7 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
 
     ocr_print(f"Detection file updated for Frame {frame_no}, crop {crop_index}.")
 
-# ===== Main now processes by FRAME (or inferred frames) =====
+
 def main():
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 

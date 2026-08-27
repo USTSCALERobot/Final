@@ -92,6 +92,7 @@ def main():
 
             img_array = np.frombuffer(jpeg, dtype=np.uint8)
             frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
 
             if frame is None:
                 print("Could not decode JPEG frame")
@@ -106,8 +107,8 @@ def main():
                 xyxy = boxes.xyxy.cpu().numpy()      # (N, 4) array: x1, y1, x2, y2 in pixels
                 cls  = boxes.cls.cpu().numpy()       # (N,) class indices
 
-                for (x1, y1, x2, y2), c, k in zip(xyxy, cls):
-                    label = model.names[int(k)]
+                for (x1, y1, x2, y2), c in zip(xyxy, cls):
+                    label = model.names[int(c)]
                     mid_x = (x1 + x2) / 2
                     midpoints_x[label].append(mid_x)
 
@@ -128,6 +129,8 @@ def main():
         for label, xs in midpoints_x.items(): #once the main loop is over, left with avg x midpoint coordinates
             avg_x = sum(xs) / len(xs)
             print(f"{label}: avg midpoint x = {avg_x: .1f} over {len(xs)} detections")
+            if label == "IC" and (avg_x < 300 or avg_x > 350):
+                print("IC is out of bounds")
 
 
 if __name__ == "__main__":

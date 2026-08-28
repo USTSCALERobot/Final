@@ -41,6 +41,53 @@ def find_weights(explicit_weights: str | None) -> Path:
         "Could not find a model weights file. Put best.pt in pi5_package/weights/ or pass --weights."
     )
 
+'''solution for latency issues'''
+
+class LatestFrame:
+    """Holds only the most recently decoded frame. Never queues."""
+ 
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._frame = None
+        self._frame_id = 0
+ 
+    def set(self, frame):
+        with self._lock:
+            self._frame = frame
+            self._frame_id += 1
+ 
+    def get(self, last_seen_id):
+        """Returns (frame, frame_id) only if it's newer than last_seen_id, else (None, last_seen_id)."""
+        with self._lock:
+            if self._frame_id == last_seen_id:
+                return None, last_seen_id
+            return self._frame, self._frame_id
+ 
+ 
+def receiver_thread(conn, latest: LatestFrame, stop_event: threading.Event):
+    """Reads frames as fast as the socket delivers them and always overwrites
+    the shared slot, so the main/inference loop can never fall behind on a
+    backlog -- it just always sees the newest frame available."""
+    while not stop_event.is_set():
+        header = recv_all(conn, 4)
+        if not header:
+            break
+ 
+        size = struct.unpack("!I", header)[0]
+        jpeg = recv_all(conn, size)
+        if jpeg is None or len(jpeg) != size:
+            print("Receiver: bad frame, stopping")
+            break
+ 
+        img_array = np.frombuffer(jpeg, dtype=np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if frame is None:
+            continue
+ 
+        latest.set(frame)
+ 
+    stop_event.set()
+ 
 
 def main():
     parser = argparse.ArgumentParser(
@@ -68,38 +115,32 @@ def main():
     conn, addr = server.accept()
     print(f"Connected to {addr}")
 
+    latest = LatestFrame()
+    stop_event = threading.Event()
+    reader = threading.Thread(target=receiver_thread, args=(conn, latest, stop_event), daemon=True)
+    reader.start()
+    
     midpoints_x = defaultdict(list)
 
     if args.display:
         cv2.namedWindow("ESP32 camera + inference", cv2.WINDOW_NORMAL)
 
+    last_frame_id = 0
+    start_time = time.time()
+
+
     try:
-        duration = 10 #how long loop runs
-        start_time = time.time()
         
-        while time.time() < start_time + duration: 
-            header = recv_all(conn, 4)
-            if not header:
-                break
-
-            size = struct.unpack("!I", header)[0]
-            jpeg = recv_all(conn, size)
-            if jpeg is None:
-                break
-            if len(jpeg) != size:
-                print(f"Received {len(jpeg)} bytes, expected {size}")
-                break
-
-            img_array = np.frombuffer(jpeg, dtype=np.uint8)
-            frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        while time.time() < start_time + args.duration and not stop_event.is_set():
+            frame, last_frame_id = latest.get(last_frame_id)
 
             if frame is None:
-                print("Could not decode JPEG frame")
+                # No new frame since we last checked -- don't burn CPU spinning,
+                # but this is a short poll, not a fixed per-frame throttle.
+                time.sleep(0.005)
                 continue
-
+ 
             results = model(frame, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
-            annotated = results[0].plot()
 
             '''bounding boxes'''
             boxes = results[0].boxes
@@ -114,6 +155,7 @@ def main():
 
             '''window'''
             if args.display:
+                annotated = results[0].plot()
                 cv2.imshow("ESP32 camera + inference", annotated)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
@@ -121,6 +163,7 @@ def main():
             time.sleep(0)
 
     finally:
+        stop_event.set()
         conn.close()
         server.close()
         if args.display:

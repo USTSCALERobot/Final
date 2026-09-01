@@ -179,19 +179,35 @@ def main():
                         # Convert rotation from radians to degrees
                         r_deg = np.degrees(r)
                         
-                        # Create custom label: Label Conf | Mid:(x,y) | Rot:deg
-                        custom_label = f"{label} {c:.2f} | Mid:({cx:.1f},{cy:.1f}) | Rot:{r_deg:.1f}deg"
+                        # Create custom label lines (removed class name)
+                        lines = [
+                            f"Conf: {c:.2f}",
+                            f"Mid: ({cx:.1f}, {cy:.1f})",
+                            f"Rot: {r_deg:.1f}deg"
+                        ]
                         
-                        # Draw the custom label near the first corner of the OBB
                         text_x, text_y = int(corner[0][0]), int(corner[0][1])
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.5
+                        thickness = 1
+                        line_spacing = 5
                         
-                        # Draw a background rectangle for text readability
-                        (text_w, text_h), _ = cv2.getTextSize(custom_label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        cv2.rectangle(annotated, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), (0, 0, 0), -1)
+                        # Calculate dimensions
+                        text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+                        max_w = max([size[0] for size in text_sizes])
+                        total_h = sum([size[1] + line_spacing for size in text_sizes])
                         
-                        # Draw the text
-                        cv2.putText(annotated, custom_label, (text_x, text_y), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        # Draw background
+                        cv2.rectangle(annotated, 
+                                      (text_x, text_y - text_sizes[0][1] - 5), 
+                                      (text_x + max_w + 10, text_y + total_h - text_sizes[0][1]), 
+                                      (0, 0, 0), -1)
+                        
+                        # Draw lines
+                        current_y = text_y
+                        for i, line in enumerate(lines):
+                            cv2.putText(annotated, line, (text_x + 5, current_y), font, font_scale, (255, 255, 255), thickness)
+                            current_y += text_sizes[i][1] + line_spacing
             else:
                 boxes = results[0].boxes
                 if boxes is not None and len(boxes) > 0:
@@ -204,13 +220,30 @@ def main():
                         mid_x = (x1 + x2) / 2
                         midpoints_x[label].append(mid_x)
                         
-                        custom_label = f"{label} {c:.2f} | Mid:({mid_x:.1f},{(y1+y2)/2:.1f})"
+                        lines = [
+                            f"Conf: {c:.2f}",
+                            f"Mid: ({mid_x:.1f}, {(y1+y2)/2:.1f})"
+                        ]
                         text_x, text_y = int(x1), int(y1)
                         
-                        (text_w, text_h), _ = cv2.getTextSize(custom_label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        cv2.rectangle(annotated, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), (0, 0, 0), -1)
-                        cv2.putText(annotated, custom_label, (text_x, text_y), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.5
+                        thickness = 1
+                        line_spacing = 5
+                        
+                        text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+                        max_w = max([size[0] for size in text_sizes])
+                        total_h = sum([size[1] + line_spacing for size in text_sizes])
+                        
+                        cv2.rectangle(annotated, 
+                                      (text_x, text_y - text_sizes[0][1] - 5), 
+                                      (text_x + max_w + 10, text_y + total_h - text_sizes[0][1]), 
+                                      (0, 0, 0), -1)
+                        
+                        current_y = text_y
+                        for i, line in enumerate(lines):
+                            cv2.putText(annotated, line, (text_x + 5, current_y), font, font_scale, (255, 255, 255), thickness)
+                            current_y += text_sizes[i][1] + line_spacing
 
             cv2.imshow("esp32 camera + inference", annotated)
           else:

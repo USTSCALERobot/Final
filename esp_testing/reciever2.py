@@ -5,8 +5,27 @@ import cv2
 import numpy as np
 import sys
 import os
+import sys
+import shlex
 import time
 from pathlib import Path
+
+# --- Auto-Activate Hailo Environment ---
+if os.environ.get("HAILO_ENV_ACTIVATED") != "1":
+    print("Auto-activating Hailo environment...")
+    script_path = os.path.abspath(__file__)
+    args_str = " ".join(shlex.quote(arg) for arg in sys.argv[1:])
+    
+    bash_cmd = (
+        f"cd /home/scalepi/hailo-apps && "
+        f"source setup_env.sh && "
+        f"cd - > /dev/null && "
+        f"export HAILO_ENV_ACTIVATED=1 && "
+        f"exec python {script_path} {args_str}"
+    )
+    os.execlp("bash", "bash", "-c", bash_cmd)
+# ---------------------------------------
+
 from ultralytics import YOLO
 from collections import defaultdict
 
@@ -24,8 +43,8 @@ def find_weights(explicit_weights: str | None = None) -> Path:
         return Path(explicit_weights).expanduser().resolve()
 
     candidates = [
-        ROOT / "best_hailo_model" / "best.hef",
         ROOT / "best_hailo_model",
+        ROOT / "best_hailo_model" / "best.hef",
         ROOT / "weights" / "best.pt",
         ROOT / "best.pt",
         ROOT.parent / "runs" / "esp_live" / "weights" / "best.pt",
@@ -74,7 +93,7 @@ def main():
     parser.add_argument("--weights", default=None, help="Path to YOLO weights file")
     parser.add_argument("--host", default="10.42.0.1", help="Host address to bind on the Pi")
     parser.add_argument("--port", type=int, default=5000, help="TCP port")
-    parser.add_argument("--imgsz", type=int, default=512, help="Input image size")
+    parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--device", default="cpu", help="Inference device, e.g. cpu")
     args = parser.parse_args()

@@ -1,0 +1,29 @@
+description: Ultralytics YOLOv8n-obb model trained on /content/dataset_obb.yaml
+author: Ultralytics
+date: '2026-09-01T08:31:36.157301-05:00'
+version: 8.4.137
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: obb
+head: OBB
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: dip-ic-segmentation
+  1: DIP integrated circuit package
+args:
+  data: dota128.yaml
+  name: hailo8l
+  fraction: 1.0
+  conf: null
+  iou: 0.7
+  quantize: 8
+  simplify: true
+channels: 3
+end2end: false
+hailo_arch: hailo8l
+nms: false
+semantic_baked: false

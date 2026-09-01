@@ -181,9 +181,8 @@ def main():
                         
                         # Create custom label lines (removed class name)
                         lines = [
-                            f"Conf: {c:.2f}",
                             f"Mid: ({cx:.1f}, {cy:.1f})",
-                            f"Rot: {r_deg:.1f}deg"
+                            f"Rot: {90-r_deg:.1f}deg"
                         ]
                         
                         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -201,7 +200,7 @@ def main():
                         top_right_y = int(np.min(corner[:, 1]))
                         
                         # 10px buffer from top right
-                        start_x = top_right_x + 10
+                        start_x = top_right_x + 20
                         start_y = top_right_y
                         
                         # Draw background

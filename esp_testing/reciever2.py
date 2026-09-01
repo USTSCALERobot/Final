@@ -158,7 +158,9 @@ def main():
           if flipped is not None:
             # Run YOLO inference
             results = model(flipped, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
-            annotated = results[0].plot()
+            
+            # We use labels=False so we can draw our own custom labels, and set line_width for the box thickness
+            annotated = results[0].plot(labels=False, line_width=2)
             
             # Extract OBB bounding boxes
             if hasattr(results[0], 'obb') and results[0].obb is not None:
@@ -166,20 +168,49 @@ def main():
                 if len(obb) > 0:
                     xywhr = obb.xywhr.cpu().numpy() # (N, 5) array: cx, cy, w, h, r
                     cls = obb.cls.cpu().numpy()
-                    for box, k in zip(xywhr, cls):
-                        cx = box[0]
+                    conf = obb.conf.cpu().numpy()
+                    corners = obb.xyxyxyxy.cpu().numpy() # (N, 4, 2) array of corner points
+                    
+                    for box, k, c, corner in zip(xywhr, cls, conf, corners):
+                        cx, cy, w, h, r = box
                         label = model.names[int(k)]
                         midpoints_x[label].append(cx)
+                        
+                        # Convert rotation from radians to degrees
+                        r_deg = np.degrees(r)
+                        
+                        # Create custom label: Label Conf | Mid:(x,y) | Rot:deg
+                        custom_label = f"{label} {c:.2f} | Mid:({cx:.1f},{cy:.1f}) | Rot:{r_deg:.1f}deg"
+                        
+                        # Draw the custom label near the first corner of the OBB
+                        text_x, text_y = int(corner[0][0]), int(corner[0][1])
+                        
+                        # Draw a background rectangle for text readability
+                        (text_w, text_h), _ = cv2.getTextSize(custom_label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        cv2.rectangle(annotated, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), (0, 0, 0), -1)
+                        
+                        # Draw the text
+                        cv2.putText(annotated, custom_label, (text_x, text_y), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             else:
                 boxes = results[0].boxes
                 if boxes is not None and len(boxes) > 0:
                     xyxy = boxes.xyxy.cpu().numpy()
                     cls = boxes.cls.cpu().numpy()
-                    for box, k in zip(xyxy, cls):
+                    conf = boxes.conf.cpu().numpy()
+                    for box, k, c in zip(xyxy, cls, conf):
                         x1, y1, x2, y2 = box
                         label = model.names[int(k)]
                         mid_x = (x1 + x2) / 2
                         midpoints_x[label].append(mid_x)
+                        
+                        custom_label = f"{label} {c:.2f} | Mid:({mid_x:.1f},{(y1+y2)/2:.1f})"
+                        text_x, text_y = int(x1), int(y1)
+                        
+                        (text_w, text_h), _ = cv2.getTextSize(custom_label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        cv2.rectangle(annotated, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), (0, 0, 0), -1)
+                        cv2.putText(annotated, custom_label, (text_x, text_y), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
             cv2.imshow("esp32 camera + inference", annotated)
           else:

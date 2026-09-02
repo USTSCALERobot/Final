@@ -81,8 +81,8 @@ def go_to_pos(pickup_pos, theta0_4):
     return True
 
 def set_gripper_rotation(ang_deg):
-   difference = ang_deg - 180
-   scaled_angle = 180 + (difference * 1.2)
+   # ang_deg is now centered at 0
+   scaled_angle = 180 + (ang_deg * 1.2)
    motor_position = (scaled_angle / 180) * 512
    phx.set_gripper(round(motor_position))
 
@@ -109,7 +109,7 @@ def main():
     phx.turn_on()
     current_pos = [18.5, 0.0, 23.0]
     current_theta = -90.0
-    current_gripper_angle = 180.0
+    current_gripper_angle = 0.0
     print(f"Moving to starting position: {current_pos} with angle {current_gripper_angle}")
     go_to_pos(current_pos, current_theta)
     set_gripper_rotation(current_gripper_angle)
@@ -126,8 +126,6 @@ def main():
     server.settimeout(1.0) # Allow accept() to timeout so we can catch Ctrl+C
 
     print(f"Listening on {args.host}:{args.port}. Press Ctrl+C or 'q' in the video window to exit.")
-
-    midpoints_x = defaultdict(list)
 
     try:
       while True:
@@ -156,6 +154,9 @@ def main():
           flipped = cv2.rotate(frame, cv2.ROTATE_180)
           
           if flipped is not None:
+            target_x = None
+            target_y = None
+            
             # Run YOLO inference
             results = model(flipped, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
             
@@ -174,15 +175,18 @@ def main():
                     for box, k, c, corner in zip(xywhr, cls, conf, corners):
                         cx, cy, w, h, r = box
                         label = model.names[int(k)]
-                        midpoints_x[label].append(cx)
+                        
+                        if target_x is None and target_y is None:
+                            target_x = cx
+                            target_y = cy
                         
                         # Convert rotation from radians to degrees
-                        r_deg = np.degrees(r)
+                        r_deg = 90 - np.degrees(r)
                         
                         # Create custom label lines (removed class name)
                         lines = [
                             f"Mid: ({cx:.1f}, {cy:.1f})",
-                            f"Rot: {90-r_deg:.1f}deg"
+                            f"Rot: {r_deg:.1f}deg"
                         ]
                         
                         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -199,7 +203,7 @@ def main():
                         top_right_x = int(np.max(corner[:, 0]))
                         top_right_y = int(np.min(corner[:, 1]))
                         
-                        # 10px buffer from top right
+                        # 20px buffer from top right
                         start_x = top_right_x + 20
                         start_y = top_right_y
                         
@@ -224,7 +228,11 @@ def main():
                         x1, y1, x2, y2 = box
                         label = model.names[int(k)]
                         mid_x = (x1 + x2) / 2
-                        midpoints_x[label].append(mid_x)
+                        mid_y = (y1 + y2) / 2
+                        
+                        if target_x is None and target_y is None:
+                            target_x = mid_x
+                            target_y = mid_y
                         
                         lines = [
                             f"Conf: {c:.2f}",
@@ -232,7 +240,7 @@ def main():
                         ]
                         
                         font = cv2.FONT_HERSHEY_SIMPLEX
-                        font_scale = 0.35
+                        font_scale = 0.25
                         thickness = 1
                         line_spacing = 4
                         
@@ -257,40 +265,33 @@ def main():
                             current_y += text_sizes[i][1] + line_spacing
 
             cv2.imshow("esp32 camera + inference", annotated)
+            
+            #########################################################################################################
+            # Conditional movement based on target_x and target_y
+            # moves 2.5mm per frame per direction
+            # rotation angle option to adjust for angle offsets. 
+            if target_x is not None and target_y is not None:
+                
+                if target_x < 325:
+                  current_pos[1] = current_pos[1] + 0.25  # we move arm in the y-direction here as the plane is inverted
+                elif target_x > 335:
+                  current_pos[1] = current_pos[1] - 0.25  
+                if target_y < 370:
+                  current_pos[0] = current_pos[0] + 0.25 
+                elif target_y > 370:
+                  current_pos[0] = current_pos[0] - 0.25    
+                go_to_pos(current_pos, current_theta)
+                # if r_deg > 2 and r_deg < -2:      # 4 degrees of freedom for hitching
+                #   current_gripper_angle = current_gripper_angle + (r_deg * -1.0)
+                #   set_gripper_rotation(current_gripper_angle)
+            ########################################################################################################## 
           else:
             print("Warning: Failed to decode frame")
-
-          key = cv2.waitKey(1) & 0xFF
-          if key == ord('q'):
-            raise KeyboardInterrupt # Break out of both loops
-          elif key == ord('m'):
-            print("\n--- Move Arm ---")
-            try:
-                x_str = input(f"Enter X (current: {current_pos[0]}): ")
-                y_str = input(f"Enter Y (current: {current_pos[1]}): ")
-                angle_str = input(f"Enter Angle (current: {current_gripper_angle}): ")
-                
-                if x_str.strip(): current_pos[0] = float(x_str)
-                if y_str.strip(): current_pos[1] = float(y_str)
-                if angle_str.strip(): current_gripper_angle = float(angle_str)
-                
-                print(f"Moving to {current_pos} with angle {current_gripper_angle}...")
-                go_to_pos(current_pos, current_theta)
-                set_gripper_rotation(current_gripper_angle)
-            except ValueError:
-                print("Invalid input. Please enter numbers.")
-          elif key == ord('g'):
-            if flipped is not None:
-                filename = os.path.join("good", f"img_{int(time.time())}.jpg")
-                cv2.imwrite(filename, flipped)
-                good_count += 1
-                print(f"Saved GOOD image: {filename} (Total: {good_count})")
-          elif key == ord('b'):
-            if flipped is not None:
-                filename = os.path.join("bad", f"img_{int(time.time())}.jpg")
-                cv2.imwrite(filename, flipped)
-                bad_count += 1
-                print(f"Saved BAD image: {filename} (Total: {bad_count})")
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+          raise KeyboardInterrupt # Break out of both loops
+          
         
         conn.close()
     except KeyboardInterrupt:
@@ -302,7 +303,7 @@ def main():
           current_theta = -90.0
           print(f"Moving to starting position: {current_pos} with angle {current_theta}")
           go_to_pos(current_pos, current_theta)
-          set_gripper_rotation(180)
+          set_gripper_rotation(0)
       except Exception as e:
           print(f"Failed to rest arm: {e}")
       
@@ -310,10 +311,6 @@ def main():
           server.close()
       cv2.destroyAllWindows()
       
-      for label, xs in midpoints_x.items():
-          if len(xs) > 0:
-              avg_x = sum(xs) / len(xs)
-              print(f"{label}: avg midpoint x = {avg_x: .1f} over {len(xs)} detections")
 
 if __name__ == "__main__":
     main()

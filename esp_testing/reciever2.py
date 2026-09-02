@@ -8,6 +8,7 @@ import os
 import sys
 import shlex
 import time
+import threading
 from pathlib import Path
 
 # --- Auto-Activate Hailo Environment ---
@@ -67,13 +68,48 @@ def recv_all(sock, size):
     data += packet
   return data
 
+class LatestFrame:
+    def __init__(self):
+        self.frame = None
+        self.lock = threading.Lock()
+        self.running = True
+
+    def get(self):
+        with self.lock:
+            return self.frame
+
+    def set(self, frame):
+        with self.lock:
+            self.frame = frame
+
+def receiver_thread(conn, latest_frame):
+    while latest_frame.running:
+        #read image length
+        header = recv_all(conn,4)
+        if not header:
+            print("Connection closed by ESP32")
+            latest_frame.running = False
+            break
+        size = struct.unpack("!I", header)[0]
+        
+        #read JPEG
+        jpeg = recv_all(conn,size)
+        if not jpeg:
+            print("Connection closed by ESP32 during frame")
+            latest_frame.running = False
+            break
+        img_array = np.frombuffer(jpeg, dtype=np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        flipped = cv2.rotate(frame, cv2.ROTATE_180)
+        latest_frame.set(flipped)
+
 def go_to_pos(pickup_pos, theta0_4):
     try:
         joint_angles = kin.ik3(pickup_pos)
         theta4 = kin.calculate_theta_4(joint_angles, theta0_4)
         phx.set_wrist(theta4)
         phx.set_wse(joint_angles)
-        phx.wait_for_completion()
+       # phx.wait_for_completion()
     except ValueError as e:
         print(f"Error: Unable to reach position {pickup_pos}.")
         print(f"Details: {e}")
@@ -135,27 +171,19 @@ def main():
           continue # Timeout reached, loop back to check for KeyboardInterrupt
           
         print("Connected:", addr)
+        
+        latest_frame = LatestFrame()
+        t = threading.Thread(target=receiver_thread, args=(conn, latest_frame))
+        t.daemon = True
+        t.start()
 
-        while True:
-          #read image length
-          header = recv_all(conn,4)
-          if not header:
-            print("Connection closed by ESP32")
-            break
-          size = struct.unpack("!I", header)[0]
-          
-          #read JPEG
-          jpeg = recv_all(conn,size)
-          if not jpeg:
-            print("Connection closed by ESP32 during frame")
-            break
-          img_array = np.frombuffer(jpeg, dtype=np.uint8)
-          frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-          flipped = cv2.rotate(frame, cv2.ROTATE_180)
+        while latest_frame.running:
+          flipped = latest_frame.get()
           
           if flipped is not None:
             target_x = None
             target_y = None
+            target_r_deg = None
             
             # Run YOLO inference
             results = model(flipped, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
@@ -179,6 +207,7 @@ def main():
                         if target_x is None and target_y is None:
                             target_x = cx
                             target_y = cy
+                            target_r_deg = 0
                         
                         # Convert rotation from radians to degrees
                         r_deg = 90 - np.degrees(r)
@@ -270,27 +299,28 @@ def main():
             # Conditional movement based on target_x and target_y
             # moves 2.5mm per frame per direction
             # rotation angle option to adjust for angle offsets. 
-            if target_x is not None and target_y is not None:
+            # if target_x is not None and target_y is not None:
                 
-                if target_x < 325:
-                  current_pos[1] = current_pos[1] + 0.25  # we move arm in the y-direction here as the plane is inverted
-                elif target_x > 335:
-                  current_pos[1] = current_pos[1] - 0.25  
-                if target_y < 370:
-                  current_pos[0] = current_pos[0] + 0.25 
-                elif target_y > 370:
-                  current_pos[0] = current_pos[0] - 0.25    
-                go_to_pos(current_pos, current_theta)
+            #     if target_x < 325:
+            #       current_pos[1] = current_pos[1] + 0.25  # we move arm in the y-direction here as the plane is inverted
+            #     elif target_x > 335:
+            #       current_pos[1] = current_pos[1] - 0.25  
+            #     if target_y < 370:
+            #       current_pos[0] = current_pos[0] + 0.25 
+            #     elif target_y > 370:
+            #       current_pos[0] = current_pos[0] - 0.25    
+            #     go_to_pos(current_pos, current_theta)
                 # if r_deg > 2 and r_deg < -2:      # 4 degrees of freedom for hitching
                 #   current_gripper_angle = current_gripper_angle + (r_deg * -1.0)
                 #   set_gripper_rotation(current_gripper_angle)
             ########################################################################################################## 
           else:
-            print("Warning: Failed to decode frame")
+            time.sleep(0.01) # Wait for first frame or next frame
         
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-          raise KeyboardInterrupt # Break out of both loops
+          key = cv2.waitKey(1) & 0xFF
+          if key == ord('q'):
+            latest_frame.running = False
+            raise KeyboardInterrupt # Break out of both loops
           
         
         conn.close()

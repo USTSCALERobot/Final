@@ -207,11 +207,11 @@ def main():
                         if target_x is None and target_y is None:
                             target_x = cx
                             target_y = cy
-                            target_r_deg = 0
+                            target_r_deg = 90 - np.degrees(r)
                         
                         # Convert rotation from radians to degrees
                         r_deg = 90 - np.degrees(r)
-                        
+
                         # Create custom label lines (removed class name)
                         lines = [
                             f"Mid: ({cx:.1f}, {cy:.1f})",
@@ -299,23 +299,26 @@ def main():
             # Conditional movement based on target_x and target_y
             # moves 2.5mm per frame per direction
             # rotation angle option to adjust for angle offsets. 
-            # if target_x is not None and target_y is not None:
+            if target_x is not None and target_y is not None and target_r_deg is not None:
                 
-            #     if target_x < 325:
-            #       current_pos[1] = current_pos[1] + 0.25  # we move arm in the y-direction here as the plane is inverted
-            #     elif target_x > 335:
-            #       current_pos[1] = current_pos[1] - 0.25  
-            #     if target_y < 370:
-            #       current_pos[0] = current_pos[0] + 0.25 
-            #     elif target_y > 370:
-            #       current_pos[0] = current_pos[0] - 0.25    
-            #     go_to_pos(current_pos, current_theta)
-                # if r_deg > 2 and r_deg < -2:      # 4 degrees of freedom for hitching
-                #   current_gripper_angle = current_gripper_angle + (r_deg * -1.0)
-                #   set_gripper_rotation(current_gripper_angle)
+                if target_x < 325:
+                  current_pos[1] = current_pos[1] - 0.1  # we move arm in the y-direction here as the plane is inverted
+                elif target_x > 335:
+                  current_pos[1] = current_pos[1] + 0.1  
+                if target_y < 360:
+                  current_pos[0] = current_pos[0] + 0.1 
+                elif target_y > 380:
+                  current_pos[0] = current_pos[0] - 0.1    
+                #go_to_pos(current_pos, current_theta)
+                if r_deg > 2:       
+                  current_gripper_angle = current_gripper_angle +1
+                elif r_deg < -2: 
+                   current_gripper_angle = current_gripper_angle -1
+                go_to_pos(current_pos, current_theta)
+                set_gripper_rotation(current_gripper_angle)
             ########################################################################################################## 
           else:
-            time.sleep(0.01) # Wait for first frame or next frame
+            time.sleep(0.05) # Wait for first frame or next frame
         
           key = cv2.waitKey(1) & 0xFF
           if key == ord('q'):

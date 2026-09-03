@@ -85,6 +85,7 @@ def release_gpio():
  
 PAUSE_SEC = 1.0     # pause after Frame 1
 
+
 # --- Environment Activation Function ---
 def activate_hailo_env():
     if os.getenv("HAILO_ENV_ACTIVATED") == "1":
@@ -97,7 +98,7 @@ def activate_hailo_env():
     r = subprocess.run(cmd, shell=True, executable="/bin/bash",
                        capture_output=True, text=True)
     if r.returncode != 0:
-        print("❌ Error activating environment:", r.stderr)
+        print("Error activating environment:", r.stderr)
         sys.exit(1)
     for line in r.stdout.splitlines():
         k, _, v = line.partition("=")
@@ -243,7 +244,7 @@ def app_callback(pad, info, user_data: UserAppCallback):
                 accumulated_dist = time_to_distance(user_data.time_offset)
                 total_dist = accumulated_dist + current_dist
                 user_data.time_offset = distance_to_time(total_dist)
-            print(f"✅ [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
+            print(f" [Frame {user_data.current_frame}] Triggering motor stop! Time offset: {user_data.time_offset:.2f}s")
             stop_motor()
             user_data.state = "STOPPING_FOR_CAPTURE"
             def _ready_capture():

@@ -111,7 +111,7 @@ def go_to_pos(pickup_pos, theta0_4):
         theta4 = kin.calculate_theta_4(joint_angles, theta0_4)
         phx.set_wrist(theta4)
         phx.set_wse(joint_angles)
-        phx.wait_for_completion()
+       # phx.wait_for_completion()
     except ValueError as e:
         print(f"Error: Unable to reach position {pickup_pos}.")
         print(f"Details: {e}")

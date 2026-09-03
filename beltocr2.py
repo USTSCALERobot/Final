@@ -188,9 +188,32 @@ def load_circuit_parts(circuit_name):
     return parts
 
 def best_part_match(ocr_text, known_parts=KNOWN_PARTS):
+    """Return the known part that best matches any OCR token.
+
+    OCR commonly includes country-of-origin and lot-code markings alongside the
+    actual part number.  Treat an exact part number embedded anywhere in that
+    text as a perfect match, then fall back to fuzzy comparisons against both
+    individual OCR tokens and the complete OCR result.
+    """
+    normalized_text = re.sub(r"[^A-Z0-9]", "", (ocr_text or "").upper())
+    ocr_tokens = re.findall(r"[A-Z0-9]+", (ocr_text or "").upper())
+
     best_score, best_part = 0.0, None
     for part in known_parts:
-        score = SequenceMatcher(None, ocr_text.upper(), part.upper()).ratio()
+        normalized_part = re.sub(r"[^A-Z0-9]", "", part.upper())
+        if not normalized_part:
+            continue
+
+        if normalized_part in normalized_text:
+            score = 1.0
+        else:
+            candidates = [normalized_text, *ocr_tokens]
+            score = max(
+                (SequenceMatcher(None, candidate, normalized_part).ratio()
+                 for candidate in candidates if candidate),
+                default=0.0,
+            )
+
         if score > best_score:
             best_score, best_part = score, part
     return best_part, best_score

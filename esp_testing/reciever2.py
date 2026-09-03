@@ -5,11 +5,19 @@ import cv2
 import numpy as np
 import sys
 import os
-import sys
 import shlex
 import time
 import threading
 from pathlib import Path
+from ultralytics import YOLO
+from collections import defaultdict
+
+# Add phx_articulate2 to path so we can import kinematics and phx
+phx_dir = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2"
+if phx_dir not in sys.path:
+   sys.path.append(phx_dir)
+import kinematics as kin
+import phx
 
 # --- Auto-Activate Hailo Environment ---
 if os.environ.get("HAILO_ENV_ACTIVATED") != "1":
@@ -27,15 +35,6 @@ if os.environ.get("HAILO_ENV_ACTIVATED") != "1":
     os.execlp("bash", "bash", "-c", bash_cmd)
 # ---------------------------------------
 
-from ultralytics import YOLO
-from collections import defaultdict
-
-# Add phx_articulate2 to path so we can import kinematics and phx
-phx_dir = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2"
-if phx_dir not in sys.path:
-   sys.path.append(phx_dir)
-import kinematics as kin
-import phx
 
 ROOT = Path(__file__).resolve().parent
 
@@ -58,14 +57,17 @@ def find_weights(explicit_weights: str | None = None) -> Path:
     raise FileNotFoundError(
         "Could not find a model weights file. Put best.hef in best_hailo_model/ or pass --weights."
     )
-
+'''
+Pulls raw data from the ESP32 and ensures full image is recieved before decoding
+'''
 def recv_all(sock, size):
   data = b""
   while len(data)<size:
     packet = sock.recv(size-len(data))
+    # if no data is recieved, return None to prevent crashes
     if not packet:
       return None
-    data += packet
+    data += packet  # adds packet to data until full image is recieved 
   return data
 
 class LatestFrame:
@@ -109,7 +111,7 @@ def go_to_pos(pickup_pos, theta0_4):
         theta4 = kin.calculate_theta_4(joint_angles, theta0_4)
         phx.set_wrist(theta4)
         phx.set_wse(joint_angles)
-       # phx.wait_for_completion()
+        phx.wait_for_completion()
     except ValueError as e:
         print(f"Error: Unable to reach position {pickup_pos}.")
         print(f"Details: {e}")
@@ -117,7 +119,6 @@ def go_to_pos(pickup_pos, theta0_4):
     return True
 
 def set_gripper_rotation(ang_deg):
-   # ang_deg is now centered at 0
    scaled_angle = 180 + (ang_deg * 1.2)
    motor_position = (scaled_angle / 180) * 512
    phx.set_gripper(round(motor_position))
@@ -134,11 +135,6 @@ def main():
     parser.add_argument("--device", default="cpu", help="Inference device, e.g. cpu")
     args = parser.parse_args()
 
-    # Create folders for saving images
-    os.makedirs("good", exist_ok=True)
-    os.makedirs("bad", exist_ok=True)
-    good_count = 0
-    bad_count = 0
 
     # Initialize arm
     print("Initializing robot arm...")
@@ -219,7 +215,7 @@ def main():
                         ]
                         
                         font = cv2.FONT_HERSHEY_SIMPLEX
-                        font_scale = 0.35
+                        font_scale = 0.25
                         thickness = 1
                         line_spacing = 4
                         
@@ -318,7 +314,7 @@ def main():
                 set_gripper_rotation(current_gripper_angle)
             ########################################################################################################## 
           else:
-            time.sleep(0.05) # Wait for first frame or next frame
+            time.sleep(0.01) # Wait for first frame or next frame
         
           key = cv2.waitKey(1) & 0xFF
           if key == ord('q'):

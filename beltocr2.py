@@ -53,7 +53,7 @@ MIN_PART_MATCH_SCORE = float(os.environ.get("MIN_PART_MATCH_SCORE", "0.45"))
 CYAN = "\033[96m"
 RESET = "\033[0m"
 
-
+# Debug print statement for OCR messages, consistently tagged with [OCR] in cyan.
 def ocr_print(message):
     """Print a consistently tagged OCR console message."""
     print(f"{CYAN}[OCR]{RESET} {message}")
@@ -148,6 +148,7 @@ def calculate_distance(t: float) -> float:
         dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
         return dist_at_2_61 + 2.2163 * (t - 2.61)
 
+# Function used to calculate the required run time of the belt based on the maximum time offset from the detection file.
 def calculate_required_run_time(max_time_offset: float) -> float:
     offset_distance = 4.0
     base_distance = 18.75 + offset_distance
@@ -171,6 +172,7 @@ def calculate_required_run_time(max_time_offset: float) -> float:
     else:
         return 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
 
+# Extract recognized strings from both PaddleOCR 2.x and 3.x results.
 def load_circuit_parts(circuit_name):
     circuit_name = circuit_name.upper()
     try:
@@ -187,6 +189,7 @@ def load_circuit_parts(circuit_name):
             parts.append(part_name.strip().upper())
     return parts
 
+# Compare OCR results against known parts and return the best match and its score.
 def best_part_match(ocr_text, known_parts=KNOWN_PARTS):
     """Return the known part that best matches any OCR token.
 
@@ -218,30 +221,13 @@ def best_part_match(ocr_text, known_parts=KNOWN_PARTS):
             best_score, best_part = score, part
     return best_part, best_score
 
+# Pass the rotated image directly to PaddleOCR.  Contrast enhancement and
+# polarity inversion made the chip markings less recognizable in practice.
 def prepare_hailo_ocr_image(image_path):
-    """Create a large, dark-text-on-light image for PaddleOCR detection."""
-    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if gray is None:
+    """Validate and return the image without altering its pixels."""
+    if cv2.imread(image_path, cv2.IMREAD_UNCHANGED) is None:
         raise ValueError(f"Could not load OCR input image: {image_path}")
-
-    prepared = cv2.bitwise_not(gray)
-    prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(prepared)
-
-    target_height = 320
-    scale = max(1.0, target_height / max(1, prepared.shape[0]))
-    prepared = cv2.resize(
-        prepared,
-        None,
-        fx=scale,
-        fy=scale,
-        interpolation=cv2.INTER_LANCZOS4,
-    )
-    prepared = cv2.copyMakeBorder(
-        prepared, 64, 64, 64, 64, cv2.BORDER_CONSTANT, value=255
-    )
-    if not cv2.imwrite(HAILO_OCR_INPUT, prepared):
-        raise RuntimeError(f"Could not write prepared OCR image: {HAILO_OCR_INPUT}")
-    return HAILO_OCR_INPUT
+    return image_path
 
 
 def run_hailo_ocr(image_path):

@@ -1,93 +1,50 @@
-#!/usr/bin/env python3
-# ESP32 -> Raspberry Pi receiver for camera frames.
-# This script is meant to run on the Pi 5 where the Hailo toolchain is installed.
-# It listens for JPEG frames from the ESP32, keeps the newest frame, and then
-# either runs Hailo inference or falls back to a YOLO model.
-
 import argparse
-import os
 import socket
 import struct
-import subprocess
-import sys
-import threading
-import time
-from collections import defaultdict
-from pathlib import Path
-
 import cv2
 import numpy as np
+import sys
+import os
+import shlex
+import time
+import threading
+from pathlib import Path
+from ultralytics import YOLO
+from collections import defaultdict
 
-# Optional fallback if YOLO is installed in the environment.
-try:
-    from ultralytics import YOLO
-except ImportError:  # optional fallback for non-YOLO machines
-    YOLO = None
+# Add phx_articulate2 to path so we can import kinematics and phx
+phx_dir = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2"
+if phx_dir not in sys.path:
+   sys.path.append(phx_dir)
+import kinematics as kin
+import phx
+
+# --- Auto-Activate Hailo Environment ---
+if os.environ.get("HAILO_ENV_ACTIVATED") != "1":
+    print("Auto-activating Hailo environment...")
+    script_path = os.path.abspath(__file__)
+    args_str = " ".join(shlex.quote(arg) for arg in sys.argv[1:])
+    
+    bash_cmd = (
+        f"cd /home/scalepi/hailo-apps && "
+        f"source setup_env.sh && "
+        f"cd - > /dev/null && "
+        f"export HAILO_ENV_ACTIVATED=1 && "
+        f"exec python {script_path} {args_str}"
+    )
+    os.execlp("bash", "bash", "-c", bash_cmd)
+# ---------------------------------------
+
 
 ROOT = Path(__file__).resolve().parent
 
-# Hailo-specific paths used on the Pi 5 project.
-HAILO_ENV_SCRIPT = "/home/scalepi/hailo-rpi5-examples/setup_env.sh"
-HAILO_VENV_PATH = "/home/scalepi/hailo-rpi5-examples/venv_hailo_rpi_examples/bin/activate"
-DEFAULT_HEF_PATH = "/home/scalepi/hailo-rpi5-examples/resources/NewFinal.hef"
-DEFAULT_LABELS_JSON = "/home/scalepi/hailo-rpi5-examples/resources/Final.json"
-
-
-def activate_hailo_env():
-    """Load the project-specific Hailo runtime used on the Pi 5."""
-    # Avoid re-sourcing the environment if it was already activated in this process.
-    if os.getenv("HAILO_ENV_ACTIVATED") == "1":
-        return
-
-    # Source the Hailo setup script and the example venv so the installed Hailo
-    # libraries and post-processing tools are available to Python.
-    cmd = (
-        f"bash -c 'source {HAILO_ENV_SCRIPT} && "
-        f"source {HAILO_VENV_PATH} && "
-        f"export HAILO_ENV_ACTIVATED=1 && env'"
-    )
-    result = subprocess.run(
-        cmd,
-        shell=True,
-        executable="/bin/bash",
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Could not activate Hailo env: {result.stderr.strip()}")
-
-    # The shell output is a full environment dump. Parse it back into os.environ so
-    # the current Python process can see the Hailo paths and libraries.
-    for line in result.stdout.splitlines():
-        key, _, value = line.partition("=")
-        if key and value:
-            os.environ[key] = value
-
-    # Set the TAPPAS directory explicitly as a fallback in case the shell didn't.
-    os.environ.setdefault(
-        "TAPPAS_POST_PROC_DIR",
-        "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes",
-    )
-
-
-def recv_all(sock, size):
-    # The ESP32 sends a 4-byte big-endian length header followed by the JPEG payload.
-    # This helper keeps reading until the expected number of bytes is received.
-    data = b""
-    while len(data) < size:
-        packet = sock.recv(size - len(data))
-        if not packet:
-            return None
-        data += packet
-    return data
-
-
-def find_weights(explicit_weights: str | None) -> Path:
-    # This is only used by the YOLO fallback path. It searches several likely model locations.
+def find_weights(explicit_weights: str | None = None) -> Path:
     if explicit_weights:
         return Path(explicit_weights).expanduser().resolve()
 
     candidates = [
+        ROOT / "best_hailo_model",
+        ROOT / "best_hailo_model" / "best.hef",
         ROOT / "weights" / "best.pt",
         ROOT / "best.pt",
         ROOT.parent / "runs" / "esp_live" / "weights" / "best.pt",
@@ -98,206 +55,291 @@ def find_weights(explicit_weights: str | None) -> Path:
             return path
 
     raise FileNotFoundError(
-        "Could not find a model weights file. Put best.pt in esp_live/weights/ or pass --weights."
+        "Could not find a model weights file. Put best.hef in best_hailo_model/ or pass --weights."
     )
-
+'''
+Pulls raw data from the ESP32 and ensures full image is recieved before decoding
+'''
+def recv_all(sock, size):
+  data = b""
+  while len(data)<size:
+    packet = sock.recv(size-len(data))
+    # if no data is recieved, return None to prevent crashes
+    if not packet:
+      return None
+    data += packet  # adds packet to data until full image is recieved 
+  return data
 
 class LatestFrame:
-    """Holds only the most recently decoded frame. Never queues."""
-    # This avoids CPU buildup when the ESP32 is sending frames faster than the Pi can process.
-    # We intentionally replace the old frame instead of buffering a backlog.
-
     def __init__(self):
-        self._lock = threading.Lock()
-        self._frame = None
-        self._frame_id = 0
+        self.frame = None
+        self.lock = threading.Lock()
+        self.running = True
+
+    def get(self):
+        with self.lock:
+            return self.frame
 
     def set(self, frame):
-        with self._lock:
-            self._frame = frame
-            self._frame_id += 1
+        with self.lock:
+            self.frame = frame
 
-    def get(self, last_seen_id):
-        """Returns (frame, frame_id) only if it's newer than last_seen_id."""
-        with self._lock:
-            if self._frame_id == last_seen_id:
-                return None, last_seen_id
-            return self._frame, self._frame_id
-
-
-def receiver_thread(conn, latest: LatestFrame, stop_event: threading.Event):
-    """Reads frames as fast as the socket delivers them and always overwrites the shared slot."""
-    while not stop_event.is_set():
-        # Read 4-byte payload length sent by the ESP32 before each JPEG frame.
-        header = recv_all(conn, 4)
+def receiver_thread(conn, latest_frame):
+    while latest_frame.running:
+        #read image length
+        header = recv_all(conn,4)
         if not header:
+            print("Connection closed by ESP32")
+            latest_frame.running = False
             break
-
-        # Decode the length to an integer and then read that many bytes.
         size = struct.unpack("!I", header)[0]
-        jpeg = recv_all(conn, size)
-        if jpeg is None or len(jpeg) != size:
-            print("Receiver: bad frame, stopping")
+        
+        #read JPEG
+        jpeg = recv_all(conn,size)
+        if not jpeg:
+            print("Connection closed by ESP32 during frame")
+            latest_frame.running = False
             break
-
-        # Convert JPEG bytes to an OpenCV image.
         img_array = np.frombuffer(jpeg, dtype=np.uint8)
         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        if frame is None:
-            continue
+        flipped = cv2.rotate(frame, cv2.ROTATE_180)
+        latest_frame.set(flipped)
 
-        # Store the newest frame so the main loop does not lag behind the stream.
-        latest.set(frame)
-
-    stop_event.set()
-
-
-def verify_hailo_runtime(hef_path: str, labels_json: str):
-    """Confirms the Hailo runtime environment and required artifacts are available."""
-    # Make sure the Pi 5 Hailo environment is loaded before trying to import hailo.
-    activate_hailo_env()
-
-    # The HEF and labels file are required for a real Hailo pipeline.
-    if not os.path.exists(hef_path):
-        raise FileNotFoundError(f"Hailo HEF not found: {hef_path}")
-    if not os.path.exists(labels_json):
-        raise FileNotFoundError(f"Hailo labels JSON not found: {labels_json}")
-
+def go_to_pos(pickup_pos, theta0_4):
     try:
-        env = os.environ.copy()
-        probe = subprocess.run(
-            ["python3", "-c", "import hailo; print('hailo-ok')"],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        if "hailo-ok" not in probe.stdout:
-            raise RuntimeError("Hailo Python package did not load correctly.")
-    except Exception as exc:  # pragma: no cover - hardware-specific runtime check
-        raise RuntimeError(f"Hailo runtime check failed: {exc}") from exc
+        joint_angles = kin.ik3(pickup_pos)
+        theta4 = kin.calculate_theta_4(joint_angles, theta0_4)
+        phx.set_wrist(theta4)
+        phx.set_wse(joint_angles)
+       # phx.wait_for_completion()
+    except ValueError as e:
+        print(f"Error: Unable to reach position {pickup_pos}.")
+        print(f"Details: {e}")
+        return False
+    return True
 
-    print(f"Hailo runtime OK; using model: {hef_path}")
-
+def set_gripper_rotation(ang_deg):
+   scaled_angle = 180 + (ang_deg * 1.2)
+   motor_position = (scaled_angle / 180) * 512
+   phx.set_gripper(round(motor_position))
 
 def main():
-    # Command-line arguments control the network address, backend, model files,
-    # and the duration of the run. This makes it easier to test on the Pi without editing code.
     parser = argparse.ArgumentParser(
-        description="Receive JPEG frames over TCP from ESP32 and run inference with the Pi 5 Hailo runtime or a YOLO fallback."
+        description="Receive JPEG frames over TCP from ESP32 and run YOLO inference"
     )
-    parser.add_argument("--weights", default=None, help="Path to YOLO .pt weights file")
+    parser.add_argument("--weights", default=None, help="Path to YOLO weights file")
     parser.add_argument("--host", default="10.42.0.1", help="Host address to bind on the Pi")
     parser.add_argument("--port", type=int, default=5000, help="TCP port")
-    parser.add_argument("--imgsz", type=int, default=512, help="Input image size")
+    parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
-    parser.add_argument("--backend", choices=["hailo", "yolo"], default="hailo", help="Inference backend to use")
-    parser.add_argument("--hef-path", default=DEFAULT_HEF_PATH, help="Path to the Hailo .hef file")
-    parser.add_argument("--labels-json", default=DEFAULT_LABELS_JSON, help="Path to Hailo labels JSON")
-    parser.add_argument("--device", default="cpu", help="YOLO device (cpu/cuda/0). Hailo backend ignores this.")
-    parser.add_argument("--duration", type=float, default=30.0, help="Inference run duration in seconds")
-    parser.add_argument("--display", action="store_true", help="Show annotated frames")
+    parser.add_argument("--device", default="cpu", help="Inference device, e.g. cpu")
     args = parser.parse_args()
 
-    model = None
-    if args.backend == "hailo":
-        # Hailo mode does not use a YOLO model object; it validates the Pi environment
-        # so the actual Hailo pipeline can run in the project environment.
-        verify_hailo_runtime(args.hef_path, args.labels_json)
-        print("Hailo backend selected. Frame stream is being prepared for the Pi Hailo runtime.")
-    else:
-        # YOLO fallback is useful when you want to test a .pt model without Hailo.
-        if YOLO is None:
-            raise RuntimeError("ultralytics is not installed; install it or run with --backend hailo.")
-        weights_path = find_weights(args.weights)
-        print(f"Loading YOLO model: {weights_path}")
-        model = YOLO(str(weights_path))
 
-    # Open a listening socket on the Pi for the ESP32 camera stream.
+    # Initialize arm
+    print("Initializing robot arm...")
+    phx.turn_on()
+    current_pos = [18.5, 0.0, 23.0]
+    current_theta = -90.0
+    current_gripper_angle = 0.0
+    print(f"Moving to starting position: {current_pos} with angle {current_gripper_angle}")
+    go_to_pos(current_pos, current_theta)
+    set_gripper_rotation(current_gripper_angle)
+
+    # Load YOLO model
+    weights_path = find_weights(args.weights)
+    print(f"Loading model: {weights_path}")
+    model = YOLO(str(weights_path))
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((args.host, args.port))
     server.listen(1)
+    server.settimeout(1.0) # Allow accept() to timeout so we can catch Ctrl+C
 
-    print(f"Waiting for ESP32 on {args.host}:{args.port}...")
-    conn, addr = server.accept()
-    print(f"Connected to {addr}")
-
-    # Keep only the newest frame so the main loop never attempts to process a backlog.
-    latest = LatestFrame()
-    stop_event = threading.Event()
-    reader = threading.Thread(target=receiver_thread, args=(conn, latest, stop_event), daemon=True)
-    reader.start()
-
-    # Store midpoint x-values per label for simple summary statistics.
-    midpoints_x = defaultdict(list)
-
-    if args.display:
-        cv2.namedWindow("ESP32 camera + inference", cv2.WINDOW_NORMAL)
-
-    last_frame_id = 0
-    start_time = time.time()
+    print(f"Listening on {args.host}:{args.port}. Press Ctrl+C or 'q' in the video window to exit.")
 
     try:
-        while time.time() < start_time + args.duration and not stop_event.is_set():
-            # Poll for the newest received frame.
-            frame, last_frame_id = latest.get(last_frame_id)
+      while True:
+        try:
+          conn, addr = server.accept()
+        except socket.timeout:
+          continue # Timeout reached, loop back to check for KeyboardInterrupt
+          
+        print("Connected:", addr)
+        
+        latest_frame = LatestFrame()
+        t = threading.Thread(target=receiver_thread, args=(conn, latest_frame))
+        t.daemon = True
+        t.start()
 
-            if frame is None:
-                # No new frame since the last check. Sleep briefly to avoid burning CPU.
-                time.sleep(0.005)
-                continue
+        while latest_frame.running:
+          flipped = latest_frame.get()
+          
+          if flipped is not None:
+            target_x = None
+            target_y = None
+            target_r_deg = None
+            
+            # Run YOLO inference
+            results = model(flipped, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
+            
+            # We use labels=False so we can draw our own custom labels, and set line_width for the box thickness
+            annotated = results[0].plot(labels=False, line_width=2)
+            
+            # Extract OBB bounding boxes
+            if hasattr(results[0], 'obb') and results[0].obb is not None:
+                obb = results[0].obb
+                if len(obb) > 0:
+                    xywhr = obb.xywhr.cpu().numpy() # (N, 5) array: cx, cy, w, h, r
+                    cls = obb.cls.cpu().numpy()
+                    conf = obb.conf.cpu().numpy()
+                    corners = obb.xyxyxyxy.cpu().numpy() # (N, 4, 2) array of corner points
+                    
+                    for box, k, c, corner in zip(xywhr, cls, conf, corners):
+                        cx, cy, w, h, r = box
+                        label = model.names[int(k)]
+                        
+                        if target_x is None and target_y is None:
+                            target_x = cx
+                            target_y = cy
+                            target_r_deg = 90 - np.degrees(r)
+                        
+                        # Convert rotation from radians to degrees
+                        r_deg = 90 - np.degrees(r)
 
-            if args.backend == "hailo":
-                # In the Hailo path, this script currently acts as a frame receiver/validator.
-                # You can replace this section with actual Hailo inference calls if needed.
-                if args.display:
-                    cv2.imshow("ESP32 camera + inference", frame)
-                    if cv2.waitKey(1) & 0xFF == 27:
-                        break
-                continue
+                        # Create custom label lines (removed class name)
+                        lines = [
+                            f"Mid: ({cx:.1f}, {cy:.1f})",
+                            f"Rot: {r_deg:.1f}deg"
+                        ]
+                        
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.25
+                        thickness = 1
+                        line_spacing = 4
+                        
+                        # Calculate dimensions
+                        text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+                        max_w = max([size[0] for size in text_sizes])
+                        total_h = sum([size[1] + line_spacing for size in text_sizes])
+                        
+                        # Find top right corner of OBB
+                        top_right_x = int(np.max(corner[:, 0]))
+                        top_right_y = int(np.min(corner[:, 1]))
+                        
+                        # 20px buffer from top right
+                        start_x = top_right_x + 20
+                        start_y = top_right_y
+                        
+                        # Draw background
+                        cv2.rectangle(annotated, 
+                                      (start_x, start_y), 
+                                      (start_x + max_w + 10, start_y + total_h + 5), 
+                                      (0, 0, 0), -1)
+                        
+                        # Draw lines
+                        current_y = start_y + text_sizes[0][1] + 2
+                        for i, line in enumerate(lines):
+                            cv2.putText(annotated, line, (start_x + 5, current_y), font, font_scale, (255, 255, 255), thickness)
+                            current_y += text_sizes[i][1] + line_spacing
+            else:
+                boxes = results[0].boxes
+                if boxes is not None and len(boxes) > 0:
+                    xyxy = boxes.xyxy.cpu().numpy()
+                    cls = boxes.cls.cpu().numpy()
+                    conf = boxes.conf.cpu().numpy()
+                    for box, k, c in zip(xyxy, cls, conf):
+                        x1, y1, x2, y2 = box
+                        label = model.names[int(k)]
+                        mid_x = (x1 + x2) / 2
+                        mid_y = (y1 + y2) / 2
+                        
+                        if target_x is None and target_y is None:
+                            target_x = mid_x
+                            target_y = mid_y
+                        
+                        lines = [
+                            f"Conf: {c:.2f}",
+                            f"Mid: ({mid_x:.1f}, {(y1+y2)/2:.1f})"
+                        ]
+                        
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.25
+                        thickness = 1
+                        line_spacing = 4
+                        
+                        text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+                        max_w = max([size[0] for size in text_sizes])
+                        total_h = sum([size[1] + line_spacing for size in text_sizes])
+                        
+                        top_right_x = int(x2)
+                        top_right_y = int(y1)
+                        
+                        start_x = top_right_x + 10
+                        start_y = top_right_y
+                        
+                        cv2.rectangle(annotated, 
+                                      (start_x, start_y), 
+                                      (start_x + max_w + 10, start_y + total_h + 5), 
+                                      (0, 0, 0), -1)
+                        
+                        current_y = start_y + text_sizes[0][1] + 2
+                        for i, line in enumerate(lines):
+                            cv2.putText(annotated, line, (start_x + 5, current_y), font, font_scale, (255, 255, 255), thickness)
+                            current_y += text_sizes[i][1] + line_spacing
 
-            # YOLO fallback inference path.
-            results = model(frame, imgsz=args.imgsz, conf=args.conf, stream=False, device=args.device)
-            boxes = results[0].boxes
-            if boxes is not None and len(boxes) > 0:
-                xyxy = boxes.xyxy.cpu().numpy()
-                cls = boxes.cls.cpu().numpy()
-                for (x1, y1, x2, y2), c in zip(xyxy, cls):
-                    label = model.names[int(c)]
-                    mid_x = (x1 + x2) / 2
-                    midpoints_x[label].append(mid_x)
-
-            if args.display:
-                annotated = results[0].plot()
-                cv2.imshow("ESP32 camera + inference", annotated)
-                if cv2.waitKey(1) & 0xFF == 27:
-                    break
-
-            time.sleep(0)
-
-    finally:
-        # Always stop the receiver thread, close the socket, and clean up OpenCV windows.
-        stop_event.set()
+            cv2.imshow("esp32 camera + inference", annotated)
+            
+            #########################################################################################################
+            # Conditional movement based on target_x and target_y
+            # moves 2.5mm per frame per direction
+            # rotation angle option to adjust for angle offsets. 
+            if target_x is not None and target_y is not None and target_r_deg is not None:
+                
+                if target_x < 325:
+                  current_pos[1] = current_pos[1] - 0.1  # we move arm in the y-direction here as the plane is inverted
+                elif target_x > 335:
+                  current_pos[1] = current_pos[1] + 0.1  
+                if target_y < 360:
+                  current_pos[0] = current_pos[0] + 0.1 
+                elif target_y > 380:
+                  current_pos[0] = current_pos[0] - 0.1    
+                #go_to_pos(current_pos, current_theta)
+                if r_deg > 2:       
+                  current_gripper_angle = current_gripper_angle +1
+                elif r_deg < -2: 
+                   current_gripper_angle = current_gripper_angle -1
+                go_to_pos(current_pos, current_theta)
+                set_gripper_rotation(current_gripper_angle)
+            ########################################################################################################## 
+          else:
+            time.sleep(0.01) # Wait for first frame or next frame
+        
+          key = cv2.waitKey(1) & 0xFF
+          if key == ord('q'):
+            latest_frame.running = False
+            raise KeyboardInterrupt # Break out of both loops
+          
+        
         conn.close()
-        server.close()
-        if args.display:
-            cv2.destroyAllWindows()
-
-        # Print average X-centroid of each class to help debug placement/bounds.
-        for label, xs in midpoints_x.items():
-            avg_x = sum(xs) / len(xs)
-            print(f"{label}: avg midpoint x = {avg_x: .1f} over {len(xs)} detections")
-            if label == "IC" and (avg_x < 300 or avg_x > 350):
-                print("IC is out of bounds")
-
+    except KeyboardInterrupt:
+      print("\nClosing program...")
+    finally:
+      print("Returning arm to rest position...")
+      try:
+          current_pos = [18.5, 0.0, 23.0]
+          current_theta = -90.0
+          print(f"Moving to starting position: {current_pos} with angle {current_theta}")
+          go_to_pos(current_pos, current_theta)
+          set_gripper_rotation(0)
+      except Exception as e:
+          print(f"Failed to rest arm: {e}")
+      
+      if 'server' in locals():
+          server.close()
+      cv2.destroyAllWindows()
+      
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nReceiver interrupted by user.")
-        sys.exit(0)
-    except Exception as exc:
-        print(f"Receiver error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    main()

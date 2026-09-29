@@ -9,8 +9,7 @@ import shlex
 import time
 import threading
 from pathlib import Path
-from ultralytics import YOLO
-from collections import defaultdict
+
 
 # Add phx_articulate2 to path so we can import kinematics and phx
 phx_dir = "/home/scalepi/hailo-rpi5-examples/basic_pipelines/Final/phx_articulate2"
@@ -34,7 +33,8 @@ if os.environ.get("HAILO_ENV_ACTIVATED") != "1":
     )
     os.execlp("bash", "bash", "-c", bash_cmd)
 # ---------------------------------------
-
+from ultralytics import YOLO
+from collections import defaultdict
 
 ROOT = Path(__file__).resolve().parent
 

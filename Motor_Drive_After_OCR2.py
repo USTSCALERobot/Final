@@ -23,24 +23,27 @@ request = chip.request_lines(
     consumer="motor_after_ocr"
 )
 
-def get_required_run_time():
-    required_time = 9.25 # default fallback
+BASE_TIME = 10.48
+
+def get_max_time_offset():
+    max_offset = 0.0
     if os.path.exists(DETECTION_FILE):
         with open(DETECTION_FILE, 'r') as f:
             for line in f:
-                m = re.match(r'^\s*Required_Belt_Run_Time:\s*([0-9.]+)', line)
+                m = re.match(r'^\s*(?:Global_Max_)?Time_Offset:\s*([0-9.]+)', line)
                 if m:
-                    required_time = float(m.group(1))
-                    break
-    return required_time
+                    offset = float(m.group(1))
+                    if offset > max_offset:
+                        max_offset = offset
+    return max_offset
 
 def main():
-    run_time = get_required_run_time()
-    
+    max_offset = get_max_time_offset()
+    run_time = max(0.0, BASE_TIME - max_offset)
     
     request.set_value(LED_PIN, gpiod.line.Value.ACTIVE)
     print("ON")
-    print(f"Running motor for {run_time:.2f}s based on OCR calculations)")
+    print(f"Running motor for {run_time:.2f}s (Base: {BASE_TIME}s - Max Offset: {max_offset:.2f}s)")
     time.sleep(run_time)  # new time differential for multiple chips 
     request.set_value(LED_PIN, gpiod.line.Value.INACTIVE)
     print("OFF")

@@ -32,6 +32,10 @@ led_request = chip.request_lines(
     config={LED_PIN: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)},
     consumer="arm_belt_run"
 )
+
+# Belt linear speed constant
+BELT_SPEED = 2.242  # cm/s (~18.5 cm / 8.25 s)
+
 #     """Transform coordinates from System 1 (0-1 scale) to System 2 (15-22 in X, -10 to 10 in Y)."""
 def transform_coordinates(x1, y1):
     x_close = 15
@@ -451,9 +455,14 @@ def main():
         part_name = mm.group(1).strip()
         area = float(area.group(1)) if area else 0.0
 
-        # Use findall to get ALL Y_Offset_cm matches in the block, and take the LAST one.
-        myo = re.findall(r"^Y_Offset_cm:\s*([0-9.]+)", block, flags=re.MULTILINE)
-        y_offset_cm = float(myo[-1]) if myo else 0.0
+        # Parse Time_Offset directly and convert to distance (with fallback to legacy Y_Offset_cm)
+        mto = re.findall(r"^Time_Offset:\s*([0-9.]+)", block, flags=re.MULTILINE)
+        if mto:
+            time_offset = float(mto[-1])
+            y_offset_cm = time_offset * BELT_SPEED
+        else:
+            myo = re.findall(r"^Y_Offset_cm:\s*([0-9.]+)", block, flags=re.MULTILINE)
+            y_offset_cm = float(myo[-1]) if myo else 0.0
 
         part_circuit = requested if requested.startswith("CIRCUIT") else None
         angle = float(ma.group(1))

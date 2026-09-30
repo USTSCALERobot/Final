@@ -109,38 +109,7 @@ def parse_detection_frames(detection_file: str) -> Dict[int, List[Tuple[str, str
     # If no frames detected at all, return empty (caller will handle)
     return frames
 
-# Motor Model 
-def calculate_distance(t: float) -> float:
-    if t <= 0:
-        return 0.0
-    elif t <= 2.61:
-        return 0.0274 * (t**2) + 2.0731 * t + 0.2780
-    else:
-        dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
-        return dist_at_2_61 + 2.2163 * (t - 2.61)
 
-def calculate_required_run_time(max_time_offset: float) -> float:
-    offset_distance = 4.0
-    base_distance = 18.75 + offset_distance
-    dist_at_2_61 = 0.0274 * (2.61**2) + 2.0731 * 2.61 + 0.2780
-    
-    distance_already_traveled = calculate_distance(max_time_offset)
-    remaining_distance = max(0.0, base_distance - distance_already_traveled)
-    
-    if remaining_distance <= 0:
-        return 0.0
-    elif remaining_distance <= dist_at_2_61:
-        a = 0.0274
-        b = 2.0731
-        c = 0.2780 - remaining_distance
-        discriminant = b**2 - 4*a*c
-        if discriminant < 0:
-            return 0.0
-        else:
-            t = (-b + math.sqrt(discriminant)) / (2*a)
-            return max(0.0, t)
-    else:
-        return 2.61 + (remaining_distance - dist_at_2_61) / 2.2163
 
 # ===== Your existing utilities (kept) =====
 def load_circuit_parts(circuit_name):
@@ -253,13 +222,11 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=
 
     mid_str    = f"({chip_middle[0]:.6f}, {chip_middle[1]:.6f})"
     match_disp = best_part if best_part and best_part.upper() in parts_list else "None"
-    y_offset_cm = calculate_distance(time_offset)
 
     # Append block (with Frame: N)
     with open(DETECTION_FILE, "a") as f:
         f.write(f"Frame: {frame_no}\n")
         f.write(f"Time_Offset: {time_offset:.2f}\n")
-        f.write(f"Y_Offset_cm: {y_offset_cm:.4f}\n")
         f.write(f"{crop_index}. Raw OCR Text: {raw_text}\n")
         f.write(f"Angle of error: {angle:.2f}°\n")
         f.write(f"Chip Middle Point: {mid_str}\n")
@@ -291,10 +258,8 @@ def main():
     # Write the global maximum time offset at the top of the file so the motor script
     # knows how long the belt ran during vision, even if the final frame timed out with no crops.
     global_max_offset = max(frame_time_offsets.values()) if frame_time_offsets else 0.0
-    required_run_time = calculate_required_run_time(global_max_offset)
     with open(DETECTION_FILE, "a") as f:
-        f.write(f"Global_Max_Time_Offset: {global_max_offset:.2f}\n")
-        f.write(f"Required_Belt_Run_Time: {required_run_time:.4f}\n\n")
+        f.write(f"Global_Max_Time_Offset: {global_max_offset:.2f}\n\n")
 
     for frame_no in sorted(frames.keys()):     # process FRAME=1, then FRAME=2
         seen: List[Tuple[float, float]] = []   # reset duplicate tracker for each frame

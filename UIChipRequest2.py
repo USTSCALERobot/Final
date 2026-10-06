@@ -154,7 +154,7 @@ def save_no_input():
 
 def speech_to_text():
  
-    print("🎙️ Running Vosk voice recognition...")
+    print("Running Vosk voice recognition...")
 
     if 'listener_thread' in globals() and listener_thread.is_alive():
         listener_thread.join(timeout=1)
@@ -169,9 +169,9 @@ def speech_to_text():
         if recognized:
             chip_id.delete(0, tk.END)
             chip_id.insert(0, recognized)
-            print(f"✅ Loaded recognized chips: {recognized}")
+            print(f"Loaded recognized chips: {recognized}")
         else:
-            print("⚠️ No recognized text found in speech file.")
+            print("No recognized text found in speech file.")
             
     except FileNotFoundError:
         print(f"Speech file not found at {SPEECH_FILE}")
@@ -192,7 +192,7 @@ def load_previous_request():
                 prev = m.group(1).strip()
                 chip_id.delete(0, tk.END)
                 chip_id.insert(0, string=prev)
-                print(f"↩️ Loaded previous request: {prev}")
+                print(f"Loaded previous request: {prev}")
                 return
         print("No previous request found in detection file.")
     except Exception as e:

@@ -15,9 +15,9 @@ OCR_SAVE_PATH = "/home/scalepi/Desktop/testOCR/rotationtest.png"
 # --- Environment Activation ---
 def activate_env():
     if os.getenv("HAILO_ENV_ACTIVATED") == "1":
-        print("✅ Environment already activated.")
+        print("Environment already activated.")
         return
-    print("🔧 Activating environment...")
+    print("Activating environment...")
     cmd = (
         f"bash -c 'source {HAILO_ENV_SCRIPT} && "
         f"source {HAILO_VENV_PATH} && "
@@ -26,16 +26,16 @@ def activate_env():
     result = subprocess.run(cmd, shell=True, executable="/bin/bash",
                             capture_output=True, text=True)
     if result.returncode != 0:
-        sys.exit(f"❌ Error activating environment: {result.stderr}")
+        sys.exit(f"Error activating environment: {result.stderr}")
     for line in result.stdout.splitlines():
         key, _, value = line.partition("=")
         os.environ[key] = value
-    print("✅ Environment activated successfully.")
+    print("Environment activated successfully.")
 
 # --- Read Detection File ---
 def read_detection_file():
     if not os.path.exists(DETECTION_FILE):
-        sys.exit("❌ Detection file not found. Ensure chip detection succeeded.")
+        sys.exit("Detection file not found. Ensure chip detection succeeded.")
 
     with open(DETECTION_FILE, "r") as f:
         lines = f.readlines()
@@ -45,10 +45,10 @@ def read_detection_file():
         if line.startswith("Cropped Photo Location:"):
             parts = line.split(",", 1)
             if len(parts) < 2:
-                sys.exit("❌ Couldn't parse cropped image path.")
+                sys.exit("Couldn't parse cropped image path.")
             return parts[1].strip()
 
-    sys.exit("❌ No cropped image path found in detection file.")
+    sys.exit("No cropped image path found in detection file.")
 
 # --- Run OCR ---
 def run_ocr():
@@ -57,11 +57,11 @@ def run_ocr():
     # Reuse the system interpreter selected by master2.py. beltocr2.py launches
     # the accelerated OCR subprocess inside the dedicated Hailo Apps environment.
     cmd = [sys.executable, OCR_SCRIPT, "--image", image_path, "--save_path", OCR_SAVE_PATH]
-    print("▶", " ".join(cmd))
+    print("running", " ".join(cmd))
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        sys.exit(f"❌ OCR processing failed ({result.returncode})")
-    print("✅ OCR processing completed.")
+        sys.exit(f"OCR processing failed ({result.returncode})")
+    print("OCR processing completed.")
 
 # --- Cleanup Detection Header ---
 def cleanup_detection_header():
@@ -81,7 +81,7 @@ def cleanup_detection_header():
         filtered.append(line)
     with open(DETECTION_FILE, "w") as f:
         f.writelines(filtered)
-    print("✅ Removed detection header from text file.")
+    print("Removed detection header from text file.")
 
 # --- Delete Cropped Images ---
 def delete_cropped_images():
@@ -90,9 +90,9 @@ def delete_cropped_images():
             path = os.path.join(SAVE_FOLDER, fname)
             try:
                 os.remove(path)
-                print(f"🗑️ Deleted {path}")
+                print(f"Deleted {path}")
             except Exception as e:
-                print(f"⚠️ Could not delete {path}: {e}")
+                print(f"Could not delete {path}: {e}")
 
 # --- Main Workflow ---
 def main():

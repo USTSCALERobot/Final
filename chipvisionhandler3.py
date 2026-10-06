@@ -19,10 +19,10 @@ DETECTION_ARGS = "--hef-path /home/scalepi/hailo-rpi5-examples/resources/NewFina
 def activate_hailo_env():
     """Activates the Hailo environment and updates os.environ."""
     if os.getenv("HAILO_ENV_ACTIVATED") == "1":
-        print("✅ Hailo environment is already active.")
+        print("Hailo environment is already active.")
         return
 
-    print("🔧 Activating Hailo Environment...")
+    print("Activating Hailo Environment...")
     # Run a bash command that sources the environment scripts then prints out the env.
     # Notice the 'env' at the end which dumps all environment variables.
     command = (
@@ -35,7 +35,7 @@ def activate_hailo_env():
     )
 
     if result.returncode != 0:
-        print("❌ Error activating environment:", result.stderr)
+        print("Error activating environment:", result.stderr)
         sys.exit(1)
 
     # Parse the environment variables from the output and update os.environ
@@ -47,12 +47,12 @@ def activate_hailo_env():
     if "TAPPAS_POST_PROC_DIR" not in os.environ:
         os.environ["TAPPAS_POST_PROC_DIR"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes"
 
-    print("✅ Hailo environment activated successfully.")
+    print("Hailo environment activated successfully.")
 
 # --- Run Detection Pipeline ---
 def run_detection():
     """Runs the detection pipeline with the proper environment."""
-    print("🚀 Running detection pipeline...")
+    print("Running detection pipeline...")
 
     # Inherit our updated environment
     env = os.environ.copy()
@@ -73,15 +73,15 @@ def run_detection():
         process.terminate()
         sys.exit(1)
 
-    print("✅ AI Detection completed.")
+    print("AI Detection completed.")
 
 # --- Cleanup ---
 def cleanup():
     """Stops any running GStreamer pipelines and detection scripts."""
-    print("🧹 Cleaning up resources...")
+    print("Cleaning up resources...")
     subprocess.run("pkill -f gst-launch-1.0", shell=True)
     subprocess.run("pkill -f detection_mod3_Cam.py", shell=True)
-    print("✅ Cleanup done.")
+    print("Cleanup done.")
 
 # --- Main Execution ---
 if __name__ == "__main__":

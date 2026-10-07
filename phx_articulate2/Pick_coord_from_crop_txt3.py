@@ -476,7 +476,7 @@ def main():
     # --- Selection Logic ---
     #selection_option1(circuits,detections)
     # selection_option2(detections)
-    selection_option3(detections)
+    selection_option2(detections)
     
     print("All operations complete. Resting.")
  

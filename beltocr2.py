@@ -12,6 +12,7 @@
 import os
 import cv2
 import numpy as np
+import time
 import easyocr
 from difflib import SequenceMatcher
 import re
@@ -241,6 +242,7 @@ def update_detection_file(angle, crop_index, chip_middle, frame_no, time_offset=
 
 # ===== Main now processes by FRAME (or inferred frames) =====
 def main():
+    start = time.time()
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 
     # Parse the detection file (supports FRAME= headers or legacy format)
@@ -278,6 +280,7 @@ def main():
 
             t_offset = frame_time_offsets.get(frame_no, 0.0)
             update_detection_file(angle, idx, mid, frame_no, t_offset, wb, hb)
+    print(f"OCR COMPLETE: time elapsed {(time.time()-start):.2f}")
 
 if __name__ == "__main__":
     main()

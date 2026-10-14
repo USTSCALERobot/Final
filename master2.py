@@ -22,13 +22,21 @@ EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
 # beltocr2.py enters the separate Hailo Apps environment for accelerated OCR.
 HAILO_PYTHON = os.environ.get("HAILO_PYTHON", "/usr/bin/python3")
 
+#=====================
+#run_ui_chip_request()
+#Launches the UI so that the user can select circuit request.
+#If UI fails, exit the pipeline.
 def run_ui_chip_request():
     print("\n=== UI: request input (part/circuit, large-part toggle) ===")
+    
     result = subprocess.run(["python3", UI_HANDLER])
     if result.returncode != 0:
         sys.exit(f"UI Chip Request failed with return code {result.returncode}")
+    
     print("UI complete.")
 
+#==========================
+# run_chip_vision_handler()
 # This is the chip vision handler and trigger for the 
 # chip vision execution 
 def run_chip_vision_handler():

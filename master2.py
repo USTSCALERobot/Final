@@ -23,7 +23,7 @@ EXTRA_RUN_SEC = os.environ.get("EXTRA_RUN_SEC", "1.0")  # default 1.0 s
 HAILO_PYTHON = os.environ.get("HAILO_PYTHON", "/usr/bin/python3")
 
 #=====================
-#run_ui_chip_request()
+#-run_ui_chip_request-
 #Launches the UI so that the user can select circuit request.
 #If UI fails, exit the pipeline.
 def run_ui_chip_request():
@@ -35,22 +35,22 @@ def run_ui_chip_request():
     
     print("UI complete.")
 
-#==========================
-# run_chip_vision_handler()
-# This is the chip vision handler and trigger for the 
-# chip vision execution 
+#=========================
+#-run_chip_vision_handler-
+# Runs Hailo detection script with custom model and labels.
 def run_chip_vision_handler():
     print("\n=== Vision: detection + crops (Frame 1, optional Frame 2) ===")
     
-    # Setup environment variables for the chip vision handler
+    # Setup environment variables for the chip vision handler.
     env = os.environ.copy()
     env["EXTRA_RUN_SEC"] = EXTRA_RUN_SEC
 
     env["TAPPAS_POST_PROC_DIR"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes"
     env["LD_LIBRARY_PATH"] = "/usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes:" + env.get("LD_LIBRARY_PATH", "")
-    # This is the trigger for the chip vision handler after enviorment setup 
+
+    # This is the trigger for the chip vision handler after enviorment setup.
     try:
-        #Pass explicit argument to ensure the AI uses the custom model and custom lables
+        #Pass explicit argument to ensure the AI uses the custom model and custom lables.
         # if '--labels-json' is missing the YOLO post-processor fails to map custom classes. 
         args = [
             HAILO_PYTHON, CHIP_VISION_HANDLER,
@@ -76,6 +76,9 @@ def run_chip_vision_handler():
 
     print("Vision completed.")
 
+#=================
+#-run_ocr_handler-
+# Runs OCR on cropped chip images.
 def run_ocr_handler():
     print("\n=== OCR: parse frames, OCR crops, append results ===")
     result = subprocess.run([HAILO_PYTHON, OCR_HANDLER])
@@ -83,6 +86,9 @@ def run_ocr_handler():
         sys.exit(f"Failure: OCR Handler failed with return code {result.returncode}")
     print("Passed: OCR completed.")
 
+#====================
+#-run_motor2_handler-
+# Runs belt to position chips under arm.
 def run_motor2_handler(seconds=None):
     print("\n=== Belt: move parts to arm station ===")
     cmd = [HAILO_PYTHON, MOTOR2_HANDLER]
@@ -93,6 +99,10 @@ def run_motor2_handler(seconds=None):
         sys.exit(f"Failure: Motor-to-Arm failed with return code {result.returncode}")
     print("Passed: Belt run completed.")
 
+#=================
+#-run_arm_handler-
+# Runs robotic arm script for one chip at a time.
+# Moves the belt between pickups.
 def run_arm_handler():
     print("\n=== ARM: pick frame 1 → 1s belt nudge → pick frame 2; drop-offs via Circuits.txt ===")
     env = os.environ.copy()
@@ -102,6 +112,9 @@ def run_arm_handler():
         sys.exit(f"ARM Handler failed with return code {result.returncode}")
     print("ARM sequence completed.")
 
+#=================
+#-file_has_frames-
+# Ensures that the detection file exists.
 def _file_has_frames(path):
     try:
         txt = Path(path).read_text()
@@ -145,3 +158,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n Master process interrupted by user. Exiting.")
         sys.exit(0)
+        

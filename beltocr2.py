@@ -459,6 +459,7 @@ def update_detection_file(raw_text, angle, crop_index, chip_middle, frame_no, ti
 
 # ===== Main now processes by FRAME (or inferred frames) =====
 def main():
+    start = time.time()
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 
     # Parse the detection file (supports FRAME= headers or legacy format)
@@ -496,6 +497,7 @@ def main():
 
             t_offset = frame_time_offsets.get(frame_no, 0.0)
             update_detection_file(raw_text, angle, idx, mid, frame_no, t_offset, wb, hb)
+    print(f"OCR COMPLETE: elapsed time {(time.time()-start):.2f}s")
 
 if __name__ == "__main__":
     main()
